@@ -1,0 +1,8 @@
+.venv/
+__pycache__/
+.pytest_cache/
+*.pyc
+
+# PII — raw and processed data exports
+desaparecidos*.json
+desaparecidos*.pfif

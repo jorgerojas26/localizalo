@@ -1,0 +1,6 @@
+pytest>=8.0
+httpx>=0.28
+supabase>=2.0
+phonetics>=1.0
+python-Levenshtein>=0.25
+pyyaml>=6.0

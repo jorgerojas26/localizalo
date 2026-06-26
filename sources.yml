@@ -1,0 +1,5 @@
+sources:
+  - id: desaparecidos-terremoto-api
+    name: Desaparecidos Terremoto API
+    namespace: desaparecidosterremotovenezuela.com
+    base_url: https://desaparecidos-terremoto-api.theempire.tech

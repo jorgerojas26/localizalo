@@ -1,0 +1,31 @@
+name: ETL
+
+on:
+  schedule:
+    - cron: '*/10 * * * *'
+  workflow_dispatch:
+    inputs:
+      source:
+        description: 'Specific source to run (empty = all)'
+        required: false
+        default: ''
+
+jobs:
+  etl:
+    # Add new sources to both this matrix and sources.yml
+    strategy:
+      matrix:
+        source: [desaparecidos-terremoto-api]
+    runs-on: ubuntu-latest
+    # When source input is provided, only run that source; empty = run all
+    if: ${{ github.event.inputs.source == '' || github.event.inputs.source == matrix.source }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: pip install -r requirements.txt
+      - run: python -m etl.main --source ${{ matrix.source }}
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}

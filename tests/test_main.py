@@ -128,7 +128,20 @@ def _mock_db():
 
     def rpc(func_name, params):
         result = Mock()
-        if func_name == "atomic_upsert_person":
+        if func_name == "trigram_match_persons":
+            from etl.dedup import is_match as _is_match
+            name = params["_name"]
+            location = params.get("_location")
+            limit = params.get("_limit", 50)
+            candidates = []
+            for p in state["persons"].values():
+                if location is not None and p.get("location_normalized") != location:
+                    continue
+                if _is_match(name, p["full_name"]):
+                    candidates.append(p)
+            candidates.sort(key=lambda c: len(c.get("full_name", "")), reverse=True)
+            result.execute.return_value.data = candidates[:limit]
+        elif func_name == "atomic_upsert_person":
             person = {
                 "person_record_id": params["_person_record_id"],
                 "full_name": params["_full_name"],
@@ -402,3 +415,58 @@ def test_phonetic_match_with_different_names_same_location():
     assert len(state["notes"]) == 1
     note = state["notes"][0]
     assert note["person_record_id"] == pid
+
+
+def test_phonetic_match_no_location_merges():
+    """Record without last_known_location merges with existing person by trigram match."""
+    client, state = _mock_db()
+
+    with patch("etl.main.db.get_client", return_value=client), \
+         patch("etl.main.source_fetch") as mock_fetch:
+        mock_fetch.return_value = [
+            {
+                "external_id": "p1",
+                "full_name": "Maria Fernandez",
+                "given_name": "Maria",
+                "family_name": "Fernandez",
+                "age": None,
+                "last_known_location": "Catia La Mar",
+                "description": "",
+                "photo_url": "",
+                "status": "missing",
+                "source_date": None,
+                "author_name": None,
+                "contacto": None,
+                "localizado_por": None,
+                "localizado_contacto": None,
+                "localizado_relacion": None,
+                "localizado_nota": None,
+            }
+        ]
+        from etl.main import run
+        run("desaparecidos-terremoto-api")
+
+        mock_fetch.return_value = [
+            {
+                "external_id": "p2",
+                "full_name": "Maria Fernandez",
+                "given_name": "Maria",
+                "family_name": "Fernandez",
+                "age": None,
+                "last_known_location": None,
+                "description": "",
+                "photo_url": "",
+                "status": "missing",
+                "source_date": None,
+                "author_name": None,
+                "contacto": None,
+                "localizado_por": None,
+                "localizado_contacto": None,
+                "localizado_relacion": None,
+                "localizado_nota": None,
+            }
+        ]
+        run("desaparecidos-terremoto-api")
+
+    assert len(state["persons"]) == 1
+    assert len(state["notes"]) == 1

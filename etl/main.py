@@ -106,11 +106,9 @@ def run(source_id: str) -> None:
                 stats.updated += 1
                 stats.source_records_upserted += 1
             else:
-                match = None
-                if loc_norm is not None:
-                    match = db.find_person_by_phonetic_match(
-                        client, record["full_name"], loc_norm
-                    )
+                match = db.find_person_by_phonetic_match(
+                    client, record["full_name"], loc_norm
+                )
                 # Merge is atomic via RPC — note + source_record inserted in single transaction.
                 # ON CONFLICT (note_record_id) DO NOTHING handles cross-source races safely.
                 if match:
@@ -206,8 +204,14 @@ def run(source_id: str) -> None:
         stats.log_summary()
         sys.exit(1)
 
-    # Only update etl_state AFTER successful export+upload
-    db.update_etl_state_run(client, source_id, now, run_id)
+    if stats.errors == 0:
+        db.update_etl_state_run(client, source_id, now, run_id)
+    else:
+        log.warning(
+            "%d error(s) during run — etl_state watermark NOT advanced; "
+            "next run will refetch this window (idempotent).",
+            stats.errors,
+        )
     stats.run_id = run_id
     stats.log_summary()
     stats.exit_if_errors()

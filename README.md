@@ -6,28 +6,30 @@ Consolida reportes de personas desaparecidas tras el terremoto de Venezuela 2026
 
 1. **Fuentes**: Cada plataforma expone un endpoint `GET /pfif`. El formato preferido es PFIF 1.5 XML (negociado vía `Accept: application/xml`); el ETL también acepta JSON para fuentes legacy (negociado por Content-Type).
 2. **ETL**: Un pipeline en Python corre cada 10 minutos vía GitHub Actions. Por cada fuente:
-   - Recorre páginas con `updated_after`, `page` y `limit`
-   - Normaliza nombres (Double Metaphone) y ubicaciones (sinónimos curados)
-   - Deduplica: mismo nombre fonético + misma ubicación → mismo `person_record_id`
-    - Phonetic Match: cercanía fonética >= PHONETIC_THRESHOLD (0.8) Y (similitud Levenshtein del nombre >= NAME_SIMILARITY_THRESHOLD (0.9) O similitud Levenshtein de clave fonética española >= 0.9), más ubicación normalizada idéntica -> fusión bajo un person_record_id con nota histórica
-3. **Almacenamiento**: Los datos canónicos viven en Supabase (PostgreSQL), schema `localize`.
-4. **Exportación**: El job consolidator (`etl/export.py`) ejecuta reconciliación cruzada entre fuentes vía `reconcile_duplicate_persons`, genera el PFIF 1.5 consolidado con todos los registros deduplicados y sus notas históricas, y lo sube a Supabase Storage (`/pfif/export.xml`).
+   - Recorre páginas con `updated_after`, `offset` y `limit`
+   - Normaliza nombres (Double Metaphone) y ubicaciones (sinónimos curados en [`locations.yml`](./locations.yml))
+   - Genera `person_record_id` determinístico = `sha256(phonetic_hash | location_normalized)[:16]`
+   - Deduplica: mismo `person_record_id` → misma persona canónica; nombres fonéticamente similares + misma ubicación → merge como nota histórica
+   - Colisiones de hash (falso positivo): desambigua con sufijo `-<discriminator>` y crea persona separada
+3. **Reconciliación**: El job consolidator ejecuta `reconcile_duplicate_persons` (RPC en PostgreSQL) que detecta duplicados creados por carreras de ingesta paralela entre fuentes (typos que cambian el `phonetic_hash`) y fusiona el secundario en el primario.
+4. **Almacenamiento**: Los datos canónicos viven en Supabase (PostgreSQL), schema `localize`.
+5. **Exportación**: El consolidator genera el PFIF 1.5 unificado con todos los registros deduplicados y sus notas históricas, y lo sube a Supabase Storage como `/pfif/export.xml` (latest) y `/pfif/exports/export_<run_id>.xml` (versionado inmutable).
 
 ## Cómo ser una fuente
 
 Implementa un endpoint HTTP público con esta firma:
 
 ```
-GET /pfif?updated_after=<ISO 8601>&page=<int>&limit=<int>
+GET /pfif?updated_after=<ISO 8601>&offset=<int>&limit=<int>
 ```
 
 ### Parámetros
 
 | Parámetro | Tipo | Descripción |
 |---|---|---|
-| `updated_after` | string (ISO 8601) | **Requerido.** Solo devuelve registros actualizados después de esta fecha. Para backfill el ETL pasa `1970-01-01T00:00:00Z`. |
-| `page` | int | **Requerido.** Número de página (empieza en 1). |
-| `limit` | int | **Requerido.** Máximo de registros por página. |
+| `updated_after` | string (ISO 8601) | **Requerido.** Solo devuelve registros actualizados después de esta fecha. Para el backfill inicial el ETL pasa `1970-01-01T00:00:00Z`. |
+| `offset` | int | **Requerido.** Desplazamiento de registros (empieza en 0, incrementa de a 1000). |
+| `limit` | int | **Requerido.** Máximo de registros por página (el ETL usa 1000). |
 
 ### Respuesta
 
@@ -58,7 +60,7 @@ Los campos adicionales (`contacto`, `localizado_por`, etc.) pueden incluirse com
 
 ### Paginación
 
-El ETL itera `page=1, 2, 3...` hasta que la respuesta contenga cero registros o menos elementos que `limit`.
+El ETL itera `offset=0, 1000, 2000...` hasta recibir una respuesta con menos de `limit` registros. La respuesta vacía (`[]`) también termina la iteración. Entre páginas se aplica un `rate_limit_ms` configurable por fuente (default 100ms).
 
 ### Campo `status`
 
@@ -86,16 +88,18 @@ sources:
     name: Mi Plataforma
     namespace: miplataforma.org
     base_url: https://api.miplataforma.org
+    rate_limit_ms: 100       # opcional, default 100
 ```
 
-| Campo | Descripción |
-|---|---|
-| `id` | Identificador único (guiones, sin espacios). Se usa en la matriz de GitHub Actions. |
-| `name` | Nombre legible para humanos. |
-| `namespace` | Dominio o prefijo para identificar tus registros en notas históricas. |
-| `base_url` | URL raíz de tu API. El ETL llama a `{base_url}/pfif?updated_after=&page=&limit=`. |
+| Campo | Requerido | Descripción |
+|---|---|---|
+| `id` | Sí | Identificador único (guiones, sin espacios). |
+| `name` | Sí | Nombre legible para humanos. |
+| `namespace` | Sí | Dominio o prefijo para identificar tus registros en notas históricas. |
+| `base_url` | Sí | URL raíz de tu API. El ETL llama a `{base_url}/pfif?updated_after=&offset=&limit=`. |
+| `rate_limit_ms` | No | Milisegundos de espera entre requests paginados (default: 100). |
 
-Además, agrega tu `id` al array `matrix.source` en [`.github/workflows/etl.yml`](./.github/workflows/etl.yml).
+La matriz de GitHub Actions se genera automáticamente desde `sources.yml` — no necesitas editar el workflow. Solo agrega tu entrada y haz el PR.
 
 Eso es todo. No necesitas escribir código Python ni entender el ETL.
 
@@ -109,27 +113,66 @@ La URL de descarga se publicará en este README cuando el sistema esté en produ
 
 Cuando dos registros de diferentes fuentes se consideran la misma persona vía Phonetic Match (cercanía fonética >= PHONETIC_THRESHOLD (0.8), similitud de nombre >= NAME_SIMILARITY_THRESHOLD (0.9) y misma ubicación normalizada), el ETL **no** crea una segunda persona canónica. En su lugar, el registro de la fuente secundaria se almacena como una nota histórica adjunta a la persona canónica existente, siguiendo el formato de `<pfif:note>`.
 
-Cada nota se genera con el siguiente formato (producido por `_build_note_text`):
+Cada nota se genera con el siguiente formato (producido por `_build_note_text` en `etl/main.py`):
 
 ```
-[namespace]: original_id=<external_id>
-photo_url=<url>                      (si existe)
-nota=<texto>                         (si existe)
+Registro también reportado por <namespace>. | ID original: <external_id>.
+```
+
+Campos adicionales si existen:
+
+```
+ | Foto: <photo_url>
+ | Nota: <localizado_nota>
 ```
 
 Ejemplo:
 
 ```
-[midominio.org]: original_id=midominio.org/a1b2c3
-photo_url=https://tudominio.com/fotos/123.jpg
-nota=Reportado como localizado en hospital de Valencia
+Registro también reportado por midominio.org. | ID original: midominio.org/a1b2c3. | Foto: https://tudominio.com/fotos/123.jpg | Nota: Reportado como localizado en hospital de Valencia
 ```
 
 ### Comportamiento actual
 
-- El campo `status` de la persona canónica **sí** se actualiza cuando una fuente secundaria reporta un estatus de mayor prioridad (deceased > found > injured > missing > unknown), tanto en `atomic_upsert_person` (colisión de person_record_id) como en `atomic_merge_note` (Phonetic Match). El orden de prioridad está definido por `status_to_priority` en la migración 012.
+- El campo `status` de la persona canónica **sí** se actualiza cuando una fuente secundaria reporta un estatus de mayor prioridad (deceased > found > injured > missing > unknown), tanto en `atomic_upsert_person` (mismo `person_record_id`) como en `atomic_merge_note` (Phonetic Match). El orden de prioridad está definido por `status_to_priority` en la migración 012.
 - Si el estatus reportado tiene igual o menor prioridad que el actual, el cambio queda únicamente en la nota histórica y no se propaga al registro canónico.
 - Las notas deben tratarse como metadatos de procedencia / auditoría; el consumo de la nota es necesario para conocer estados alternativos reportados por otras fuentes.
+- **First-writer-wins**: Los campos descriptivos (`full_name`, `given_name`, `family_name`, `age`, `description`, `photo_url`, `author_name`) siguen semántica first-writer-wins vía `COALESCE(persons.field, EXCLUDED.field)` en `atomic_upsert_person`. Una vez que un campo recibe un valor no-nulo de la primera fuente, fuentes posteriores no lo sobreescriben (migración 018). La excepción es `status` que escala por prioridad.
+
+### Idempotencia y estrategia de watermark
+
+- **`person_record_id` determinístico**: `sha256(phonetic_hash | location_normalized)[:16]`. Misma persona + misma ubicación → mismo ID siempre, entre todas las fuentes y ejecuciones.
+- **`note_record_id` determinístico**: `sha256(person_record_id | source_id | external_id)[:16]`. Notas idempotentes vía `ON CONFLICT DO NOTHING`.
+- **`source_records` idempotentes**: `ON CONFLICT (source_id, external_id) DO UPDATE`.
+- **Watermark desde datos, no wall-clock**: El watermark `updated_after` se calcula como `max(source_date) - 1s` de los registros fetcheados, no del reloj del servidor. Esto evita pérdida de datos por TOCTOU si el fetch y el cómputo del watermark no son atómicos.
+- **Watermark no avanza si hay errores**: Si algún record falla durante el procesamiento, el watermark **no** se actualiza. El siguiente ciclo re-fetchea la misma ventana (idempotente).
+- **Fetch parcial no avanza watermark**: Si el fetch falla a mitad de la paginación, el ETL retorna sin avanzar el watermark. El siguiente ciclo reintenta desde el último watermark exitoso.
+
+### Carreras de ingesta paralela y reconciliación
+
+Cuando dos fuentes A y B se ejecutan concurrentemente (cada 10 min en jobs paralelos de GitHub Actions), pueden procesar a la misma persona simultáneamente. Si un typo en una fuente cambia el `phonetic_hash`, cada fuente genera un `person_record_id` distinto para la misma persona → dos registros canónicos duplicados.
+
+El consolidator ejecuta después de todos los jobs de fuente y llama a `reconcile_duplicate_persons` repetidamente hasta que no queden pares por fusionar. El algoritmo:
+
+1. Encuentra pares con misma ubicación normalizada y nombres trigram-similares (`similarity > 0.5`)
+2. Reasigna `source_records` y `notes` del secundario al primario
+3. Promueve el status de mayor prioridad al primario
+4. Inserta nota de auditoría documentando la fusión
+5. Elimina el registro secundario
+
+La función procesa pares disjuntos por lote (sin transitividad) para evitar fusiones incorrectas en cadena.
+
+### Monitoreo
+
+- **Sentry**: El ETL reporta excepciones a Sentry vía `SENTRY_DSN`. Errores de fetch y fallos de procesamiento por registro se capturan sin detener el pipeline.
+- **Errores de fetch**: Si el fetch falla (red, timeout), el ETL registra el error en Sentry y retorna sin avanzar el watermark. El error **no** causa fallo del job de CI (soft fail) — el siguiente ciclo (10 min después) reintenta automáticamente.
+- **Errores de registro**: Si un registro individual falla (ej. nombre inválido), se omite y se incrementa el contador de errores. Si la tasa de error supera el 10% de los registros fetcheados, el job termina con `exit(1)`.
+- **Resumen JSON**: Cada ejecución emite un resumen estructurado con conteos de creados, actualizados, mergeados, notas agregadas y errores.
+
+### Limitaciones conocidas
+
+- **Detección de colisión de `person_record_id`**: `is_full_match` usa nombre, edad y contacto para distinguir colisiones de hash. Como la tabla `persons` no tiene columna `contacto` (está en `source_records`), el chequeo de contacto no actúa como discriminador. Solo nombre y edad pueden diferenciar una colisión real. En la práctica esto es extremadamente improbable porque requiere mismo `phonetic_hash` + misma ubicación + mismo nombre + edad similar para dos personas distintas.
+- **Registros sin ubicación**: Cuando un registro no tiene `last_known_location`, el phonetic match se ejecuta sin filtro de ubicación, lo que puede producir matches contra cualquier persona con nombre fonéticamente similar. Se recomienda que las fuentes siempre provean ubicación.
 
 ## Migraciones
 

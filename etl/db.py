@@ -308,6 +308,8 @@ def upload_pfif(client, xml_content: str, run_id: str) -> None:
     )
 
     # Latest symlink — always points to current
+    # NOTE: upsert must be a string "true" because storage3 FileOptions
+    #       TypedDict defines it as str (HTTP header x-upsert).
     bucket.upload(
         "export.xml",
         content,

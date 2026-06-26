@@ -150,9 +150,10 @@ def list_source_ids() -> list[str]:
     return [s["id"] for s in load_sources()]
 
 
-def fetch(source_config: dict, updated_after: str) -> list[dict]:
-    records = []
+def fetch(source_config: dict, updated_after: str):
+    """Generator: yields sanitized records one at a time for memory-efficient streaming."""
     offset = 0
+    total = 0
     url = source_config["base_url"].rstrip("/") + "/pfif"
     max_retries = 3
 
@@ -191,8 +192,8 @@ def fetch(source_config: dict, updated_after: str) -> list[dict]:
                     break
                 except Exception as e:
                     if attempt == max_retries - 1:
-                        log.error("All retries exhausted for offset %d: %s. %d records fetched before failure.",
-                                  offset, e, len(records))
+                        log.error("All retries exhausted for offset %d: %s. %d records yielded before failure.",
+                                  offset, e, total)
                         raise RuntimeError(
                             f"Fetch failed for {source_config['id']} at offset {offset}: {e}"
                         ) from e
@@ -201,12 +202,13 @@ def fetch(source_config: dict, updated_after: str) -> list[dict]:
 
             if not data:
                 break
-            records.extend(data)
+            for record in data:
+                total += 1
+                yield record
             time.sleep(rate_limit_ms / 1000.0)
 
             if len(data) < PAGE_LIMIT:
                 break
             offset += PAGE_LIMIT
 
-    log.info("Fetch complete: %d total records", len(records))
-    return records
+    log.info("Fetch complete: %d total records", total)

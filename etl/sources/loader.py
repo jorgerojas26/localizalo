@@ -1,5 +1,6 @@
 import functools
 import logging
+import os
 import re
 from datetime import datetime, timezone
 from pathlib import Path
@@ -12,7 +13,12 @@ import yaml
 log = logging.getLogger(__name__)
 
 PAGE_LIMIT = 1000
-_SOURCES_FILE = Path(__file__).resolve().parent.parent.parent / "sources.yml"
+_DEFAULT_SOURCES_FILE = Path(__file__).resolve().parent.parent.parent / "sources.yml"
+
+
+def _get_sources_file() -> Path:
+    """Return the sources file path, respecting SOURCES_FILE env var override."""
+    return Path(os.environ.get("SOURCES_FILE", str(_DEFAULT_SOURCES_FILE)))
 PFIF_NS = 'http://zesty.ca/pfif/1.5'
 
 _URL_RE = re.compile(r'^https?://')
@@ -128,7 +134,7 @@ _REQUIRED_SOURCE_KEYS = {"id", "name", "namespace", "base_url"}
 
 @functools.lru_cache(maxsize=1)
 def load_sources() -> list[dict]:
-    with open(_SOURCES_FILE) as f:
+    with open(_get_sources_file()) as f:
         sources = yaml.safe_load(f)["sources"]
     for s in sources:
         missing = _REQUIRED_SOURCE_KEYS - s.keys()

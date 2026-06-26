@@ -176,12 +176,12 @@ La función procesa pares disjuntos por lote (sin transitividad) para evitar fus
 
 ## Migraciones
 
-Las migraciones están en `db/migrations/`. Aplicarlas en orden numérico.
+Las migraciones están en `supabase/migrations/`. Aplicarlas en orden numérico.
 
 ### Con psql
 
 ```bash
-for f in db/migrations/*.sql; do
+for f in supabase/migrations/*.sql; do
   psql "$DATABASE_URL" -f "$f"
 done
 ```
@@ -195,7 +195,7 @@ supabase db push
 ## Stack
 
 - **ETL**: Python 3.12 + httpx + phonetics + python-Levenshtein
-- **Base de datos**: Supabase (PostgreSQL 15), schema `localize`. Migraciones en `db/migrations/`. Se usará la extensión `pg_trgm` para búsqueda difusa al optimizar el emparejamiento fonético.
+- **Base de datos**: Supabase (PostgreSQL 15), schema `localize`. Migraciones en `supabase/migrations/`. Se usará la extensión `pg_trgm` para búsqueda difusa al optimizar el emparejamiento fonético.
 - **Orquestación**: GitHub Actions (cron `*/10 * * * *`, matrix por fuente + consolidator)
 - **Formato de exportación**: PFIF 1.5
 

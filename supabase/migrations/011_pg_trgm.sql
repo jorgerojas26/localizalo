@@ -11,11 +11,11 @@ SET pg_trgm.similarity_threshold = 0.3;
 
 -- GIN trigram indexes on person text columns for fuzzy matching
 CREATE INDEX IF NOT EXISTS idx_persons_full_name_trgm
-    ON localize.persons USING gin (full_name extensions.gin_trgm_ops);
+    ON localize.persons USING gin (full_name gin_trgm_ops);
 CREATE INDEX IF NOT EXISTS idx_persons_phonetic_hash_trgm
-    ON localize.persons USING gin (phonetic_hash extensions.gin_trgm_ops);
+    ON localize.persons USING gin (phonetic_hash gin_trgm_ops);
 CREATE INDEX IF NOT EXISTS idx_persons_location_trgm
-    ON localize.persons USING gin (last_known_location extensions.gin_trgm_ops);
+    ON localize.persons USING gin (last_known_location gin_trgm_ops);
 
 -- Composite btree index for the fast-path exact-match query
 CREATE INDEX IF NOT EXISTS idx_persons_loc_phonetic

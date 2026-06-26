@@ -6,3 +6,4 @@ __pycache__/
 # PII — raw and processed data exports
 desaparecidos*.json
 desaparecidos*.pfif
+.env*

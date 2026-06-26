@@ -1,0 +1,13 @@
+sources:
+  - id: cruz-roja-ve
+    name: Cruz Roja Venezolana
+    namespace: cruzroja.org.ve
+    base_url: http://127.0.0.1:18770
+    rate_limit_ms: 0
+
+  - id: proteccion-civil-ve
+    name: Protección Civil Venezuela
+    namespace: proteccioncivil.gob.ve
+    base_url: http://127.0.0.1:18771
+    rate_limit_ms: 0
+

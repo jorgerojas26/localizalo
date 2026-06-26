@@ -93,20 +93,29 @@ def find_person_by_phonetic_match(
         if is_match(name, candidate["full_name"]):
             return candidate
 
-    # Slow path: different phonetic_hash but phonetically similar
-    # Still need location filter to limit scan
-    result = (
-        _tbl(client, "persons")
-        .select("*")
-        .eq("location_normalized", location)
-        .limit(500)
-        .execute()
-    )
-    for candidate in result.data or []:
-        if candidate.get("phonetic_hash") == primary_hash:
-            continue  # already checked above
-        if is_match(name, candidate["full_name"]):
-            return candidate
+    # Slow path: different phonetic_hash but phonetically similar.
+    # Paginate through all persons at this location to avoid missing matches.
+    page_size = 1000
+    start = 0
+    while True:
+        result = (
+            _tbl(client, "persons")
+            .select("*")
+            .eq("location_normalized", location)
+            .order("person_record_id")
+            .range(start, start + page_size - 1)
+            .execute()
+        )
+        if not result.data:
+            break
+        for candidate in result.data:
+            if candidate.get("phonetic_hash") == primary_hash:
+                continue  # already checked above
+            if is_match(name, candidate["full_name"]):
+                return candidate
+        if len(result.data) < page_size:
+            break
+        start += page_size
     return None
 
 

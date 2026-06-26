@@ -34,6 +34,7 @@ def _mock_db():
                 q2.eq = eq
                 q2.limit = Mock(return_value=q2)
                 q2.order = Mock(return_value=q2)
+                q2.range = Mock(return_value=q2)
                 return q2
             
             q.eq = eq

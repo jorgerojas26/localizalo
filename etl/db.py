@@ -1,6 +1,6 @@
 import os
 
-from etl.dedup import is_match, phonetic_hash
+from etl.dedup import is_match
 
 _SCHEMA = "localize"
 
@@ -50,11 +50,9 @@ def find_person_by_phonetic_match(
 ) -> dict | None:
     if location is None:
         return None
-    ph = phonetic_hash(name)
     result = (
         _tbl(client, "persons")
         .select("*")
-        .eq("phonetic_hash", ph)
         .eq("location_normalized", location)
         .execute()
     )
@@ -66,6 +64,34 @@ def find_person_by_phonetic_match(
 
 def create_person(client, person: dict) -> None:
     _tbl(client, "persons").insert(person).execute()
+
+
+def atomic_upsert_person(client, person: dict, source_record: dict) -> str:
+    result = client.rpc("atomic_upsert_person", {
+        "_person_record_id": person["person_record_id"],
+        "_full_name": person["full_name"],
+        "_given_name": person.get("given_name"),
+        "_family_name": person.get("family_name"),
+        "_age": person.get("age"),
+        "_last_known_location": person.get("last_known_location"),
+        "_description": person.get("description"),
+        "_photo_url": person.get("photo_url"),
+        "_status": person.get("status", "unknown"),
+        "_author_name": person.get("author_name"),
+        "_phonetic_hash": person.get("phonetic_hash"),
+        "_location_normalized": person.get("location_normalized"),
+        "_created_at": person.get("created_at"),
+        "_updated_at": person.get("updated_at"),
+        "_source_id": source_record["source_id"],
+        "_external_id": source_record["external_id"],
+        "_source_date": source_record.get("source_date"),
+        "_contacto": source_record.get("contacto"),
+        "_localizado_por": source_record.get("localizado_por"),
+        "_localizado_contacto": source_record.get("localizado_contacto"),
+        "_localizado_relacion": source_record.get("localizado_relacion"),
+        "_localizado_nota": source_record.get("localizado_nota"),
+    }).execute()
+    return result.data[0] if result.data else None
 
 
 def update_person(client, person_record_id: str, updates: dict) -> None:
@@ -92,8 +118,7 @@ def update_etl_state_run(client, source_id: str, last_run: str, run_id: str) -> 
     ).execute()
 
 
-def get_all_persons(client) -> list[dict]:
-    records = []
+def get_all_persons_paged(client):
     start = 0
     page_size = 1000
     while True:
@@ -105,15 +130,13 @@ def get_all_persons(client) -> list[dict]:
         )
         if not result.data:
             break
-        records.extend(result.data)
+        yield result.data
         if len(result.data) < page_size:
             break
         start += page_size
-    return records
 
 
-def get_all_notes(client) -> list[dict]:
-    records = []
+def get_all_notes_paged(client):
     start = 0
     page_size = 1000
     while True:
@@ -125,11 +148,34 @@ def get_all_notes(client) -> list[dict]:
         )
         if not result.data:
             break
-        records.extend(result.data)
+        yield result.data
         if len(result.data) < page_size:
             break
         start += page_size
+
+
+def get_all_persons(client) -> list[dict]:
+    records = []
+    for page in get_all_persons_paged(client):
+        records.extend(page)
     return records
+
+
+def get_all_notes(client) -> list[dict]:
+    records = []
+    for page in get_all_notes_paged(client):
+        records.extend(page)
+    return records
+
+
+def count_persons(client) -> int:
+    result = _tbl(client, "persons").select("*", count="exact").limit(1).execute()
+    return result.count
+
+
+def count_notes(client) -> int:
+    result = _tbl(client, "notes").select("*", count="exact").limit(1).execute()
+    return result.count
 
 
 def upload_pfif(client, xml_content: str, run_id: str) -> None:

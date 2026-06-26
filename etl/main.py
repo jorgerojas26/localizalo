@@ -1,5 +1,6 @@
 import argparse
 import hashlib
+import os
 import uuid
 import logging
 from datetime import datetime, timezone
@@ -25,8 +26,6 @@ def _build_note_text(record: dict, source_config: dict) -> str:
         f"Registro también reportado por {source_config['namespace']}.",
         f"ID original: {record.get('external_id', '')}.",
     ]
-    if record.get("contacto"):
-        parts.append(f"Contacto: {record['contacto']}")
     if record.get("photo_url"):
         parts.append(f"Foto: {record['photo_url']}")
     if record.get("localizado_nota"):
@@ -74,6 +73,21 @@ def run(source_id: str) -> None:
                     },
                 )
                 stats.updated += 1
+                db.upsert_source_record(
+                    client,
+                    {
+                        "person_record_id": pid,
+                        "source_id": source_id,
+                        "external_id": record["external_id"],
+                        "source_date": record.get("source_date"),
+                        "contacto": record.get("contacto"),
+                        "localizado_por": record.get("localizado_por"),
+                        "localizado_contacto": record.get("localizado_contacto"),
+                        "localizado_relacion": record.get("localizado_relacion"),
+                        "localizado_nota": record.get("localizado_nota"),
+                    },
+                )
+                stats.source_records_upserted += 1
             else:
                 match = None
                 if loc_norm is not None:
@@ -99,8 +113,23 @@ def run(source_id: str) -> None:
                     )
                     stats.merged += 1
                     stats.notes_added += 1
+                    db.upsert_source_record(
+                        client,
+                        {
+                            "person_record_id": match["person_record_id"],
+                            "source_id": source_id,
+                            "external_id": record["external_id"],
+                            "source_date": record.get("source_date"),
+                            "contacto": record.get("contacto"),
+                            "localizado_por": record.get("localizado_por"),
+                            "localizado_contacto": record.get("localizado_contacto"),
+                            "localizado_relacion": record.get("localizado_relacion"),
+                            "localizado_nota": record.get("localizado_nota"),
+                        },
+                    )
+                    stats.source_records_upserted += 1
                 else:
-                    db.create_person(
+                    db.atomic_upsert_person(
                         client,
                         {
                             "person_record_id": pid,
@@ -118,34 +147,36 @@ def run(source_id: str) -> None:
                             "created_at": now,
                             "updated_at": now,
                         },
+                        {
+                            "person_record_id": pid,
+                            "source_id": source_id,
+                            "external_id": record["external_id"],
+                            "source_date": record.get("source_date"),
+                            "contacto": record.get("contacto"),
+                            "localizado_por": record.get("localizado_por"),
+                            "localizado_contacto": record.get("localizado_contacto"),
+                            "localizado_relacion": record.get("localizado_relacion"),
+                            "localizado_nota": record.get("localizado_nota"),
+                        },
                     )
                     stats.created += 1
-
-            db.upsert_source_record(
-                client,
-                {
-                    "person_record_id": pid,
-                    "source_id": source_id,
-                    "external_id": record["external_id"],
-                    "source_date": record.get("source_date"),
-                    "contacto": record.get("contacto"),
-                    "localizado_por": record.get("localizado_por"),
-                    "localizado_contacto": record.get("localizado_contacto"),
-                    "localizado_relacion": record.get("localizado_relacion"),
-                    "localizado_nota": record.get("localizado_nota"),
-                },
-            )
-            stats.source_records_upserted += 1
+                    stats.source_records_upserted += 1
         except Exception:
             log.exception("Failed to process record external_id=%s", record.get("external_id"))
+            try:
+                import sentry_sdk
+                sentry_sdk.capture_exception()
+            except Exception:
+                pass
             stats.errors += 1
 
-    persons = db.get_all_persons(client)
-    notes = db.get_all_notes(client)
-    pfif_xml = export_pfif(persons, notes)
-    stats.persons_exported = len(persons)
+    pfif_xml = export_pfif(
+        db.get_all_persons_paged(client),
+        db.get_all_notes_paged(client),
+    )
+    stats.persons_exported = db.count_persons(client)
     stats.pfif_bytes = len(pfif_xml)
-    log.info("Exported %d persons, %d notes, XML size %d bytes", stats.persons_exported, len(notes), stats.pfif_bytes)
+    log.info("Exported %d persons, %d notes, XML size %d bytes", stats.persons_exported, db.count_notes(client), stats.pfif_bytes)
 
     try:
         db.upload_pfif(client, pfif_xml, run_id)
@@ -166,6 +197,16 @@ def run(source_id: str) -> None:
 
 def main() -> None:
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
+
+    sentry_dsn = os.environ.get("SENTRY_DSN")
+    if sentry_dsn:
+        import sentry_sdk
+        sentry_sdk.init(
+            dsn=sentry_dsn,
+            traces_sample_rate=0.0,
+            environment=os.environ.get("ENVIRONMENT", "production"),
+        )
+
     parser = argparse.ArgumentParser(description="Run ETL for a source")
     parser.add_argument("--source", required=True, choices=list_source_ids())
     args = parser.parse_args()

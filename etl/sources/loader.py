@@ -1,6 +1,8 @@
 import logging
 import re
+from datetime import datetime, timezone
 from pathlib import Path
+from xml.etree.ElementTree import fromstring as xml_from_string
 import time
 
 import httpx
@@ -10,12 +12,91 @@ log = logging.getLogger(__name__)
 
 PAGE_LIMIT = 1000
 _SOURCES_FILE = Path(__file__).resolve().parent.parent.parent / "sources.yml"
+PFIF_NS = 'http://zesty.ca/pfif/1.5'
 
 _URL_RE = re.compile(r'^https?://')
 
 
-def sanitize_record(record: dict) -> dict:
+def _parse_pfif_person(el) -> dict:
+    ns = f"{{{PFIF_NS}}}"
+    def _text(tag):
+        e = el.find(f"{ns}{tag}")
+        if e is None:
+            e = el.find(tag)
+        if e is not None and e.text:
+            return e.text.strip()
+        return None
+
+    record = {}
+    record["external_id"] = _text("person_record_id")
+    record["full_name"] = _text("full_name")
+    record["given_name"] = _text("given_name")
+    record["family_name"] = _text("family_name")
+
+    age = _text("age")
+    if age is not None:
+        try:
+            record["age"] = int(age)
+        except (ValueError, TypeError):
+            record["age"] = None
+    else:
+        record["age"] = None
+
+    record["last_known_location"] = _text("last_known_location")
+    record["description"] = _text("description")
+    record["photo_url"] = _text("photo_url")
+    record["status"] = _text("status")
+    record["source_date"] = _text("source_date")
+    record["author_name"] = _text("author_name")
+
+    record["contacto"] = None
+    record["localizado_por"] = None
+    record["localizado_contacto"] = None
+    record["localizado_relacion"] = None
+    record["localizado_nota"] = None
+
+    other = _text("other")
+    if other:
+        for part in other.split(" | "):
+            if part.startswith("Contacto: "):
+                record["contacto"] = part[10:]
+            elif part.startswith("Localizado por: "):
+                record["localizado_por"] = part[16:]
+            elif part.startswith("Contacto localizador: "):
+                record["localizado_contacto"] = part[22:]
+            elif part.startswith("Relación: "):
+                record["localizado_relacion"] = part[10:]
+            elif part.startswith("Nota: "):
+                record["localizado_nota"] = part[6:]
+
+    for tag, key in (
+        ("contacto", "contacto"),
+        ("localizado_por", "localizado_por"),
+        ("localizado_contacto", "localizado_contacto"),
+        ("localizado_relacion", "localizado_relacion"),
+        ("localizado_nota", "localizado_nota"),
+    ):
+        e = el.find(f"{ns}{tag}")
+        if e is None:
+            e = el.find(tag)
+        if e is not None and e.text:
+            record[key] = e.text.strip()
+
+    return record
+
+
+def sanitize_record(record: dict) -> dict | None:
     r = dict(record)
+
+    if not r.get("full_name") or not isinstance(r["full_name"], str) or not r["full_name"].strip():
+        return None
+    if not r.get("external_id") or not isinstance(r["external_id"], str) or not r["external_id"].strip():
+        return None
+
+    sd = r.get("source_date")
+    if sd is not None and isinstance(sd, int):
+        r["source_date"] = datetime.fromtimestamp(sd / 1000, tz=timezone.utc).isoformat()
+
     if r.get("photo_url") and not _URL_RE.match(str(r["photo_url"])):
         r["photo_url"] = None
     for field in ("full_name", "given_name", "family_name", "description",
@@ -73,10 +154,21 @@ def fetch(source_config: dict, updated_after: str) -> list[dict]:
                         "page": page,
                         "limit": PAGE_LIMIT,
                     },
-                    headers={"accept": "application/json"},
+                    headers={"accept": "application/json, application/xml"},
                 )
                 resp.raise_for_status()
-                data = [sanitize_record(r) for r in resp.json()]
+                ctype = resp.headers.get("content-type", "").lower()
+                if "xml" in ctype:
+                    root = xml_from_string(resp.text)
+                    ns = f"{{{PFIF_NS}}}"
+                    persons = root.findall(f".//{ns}person")
+                    if not persons:
+                        persons = root.findall(".//person")
+                    raw_records = [_parse_pfif_person(p) for p in persons]
+                else:
+                    raw_records = resp.json()
+                data = [sanitize_record(r) for r in raw_records]
+                data = [r for r in data if r is not None]
                 log.info("Fetched page %d: %d records", page, len(data))
                 break
             except Exception as e:

@@ -26,7 +26,7 @@ def test_export_single_person():
             "status": "missing",
         }
     ]
-    xml = export_pfif(persons, [])
+    xml = export_pfif([persons], [])
     root = fromstring(xml.encode())
     person = root.find(f".//{_ns('person')}")
     assert person is not None
@@ -50,7 +50,7 @@ def test_export_person_with_all_fields():
             "author_name": "Familiar",
         }
     ]
-    xml = export_pfif(persons, [])
+    xml = export_pfif([persons], [])
     root = fromstring(xml.encode())
     p = root.find(f".//{_ns('person')}")
     assert p.find(_ns("age")).text == "30"
@@ -78,7 +78,7 @@ def test_export_with_note():
             "status": "found",
         }
     ]
-    xml = export_pfif(persons, notes)
+    xml = export_pfif([persons], [notes])
     root = fromstring(xml.encode())
     note = root.find(f".//{_ns('note')}")
     assert note is not None

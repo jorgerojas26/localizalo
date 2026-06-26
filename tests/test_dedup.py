@@ -39,3 +39,31 @@ def test_phonetic_hash_numeric_name():
     assert len(h) == 16  # sha256 hex[:16]
     # Two different numeric "names" should get different hashes
     assert phonetic_hash("12345") != phonetic_hash("67890")
+
+
+def test_is_match_christina_cristina():
+    assert is_match("Christina", "Cristina") is True
+
+
+def test_is_match_jose_josefina():
+    assert is_match("Jose", "Josefina") is False
+
+
+def test_is_match_spanish_bv():
+    assert is_match("Victor Blanco", "Bictor Vlanco") is True
+
+
+def test_is_match_spanish_seseo():
+    assert is_match("Cesar", "Sesar") is True
+
+
+def test_is_match_spanish_ll_y():
+    assert is_match("Camilla", "Camiya") is True
+
+
+def test_is_match_spanish_silent_h():
+    assert is_match("Hernandez", "Ernandes") is True
+
+
+def test_is_match_spanish_different_names():
+    assert is_match("Carlos", "Carmen") is False

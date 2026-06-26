@@ -13,9 +13,15 @@ def _mock_db():
     def _table(name):
         tbl = Mock()
 
-        def select(*cols):
+        def select(*cols, **kwargs):
             q = Mock()
-            q.execute.return_value.data = list(state.get(name, {}).values()) if isinstance(state.get(name), dict) else list(state.get(name))
+            _items = state.get(name, {})
+            if isinstance(_items, dict):
+                q.execute.return_value.data = list(_items.values())
+                q.execute.return_value.count = len(_items)
+            else:
+                q.execute.return_value.data = list(_items)
+                q.execute.return_value.count = len(_items)
             
             def eq(k, v):
                 q2 = Mock()
@@ -30,6 +36,7 @@ def _mock_db():
             
             q.eq = eq
             q.range = Mock(return_value=q)
+            q.limit = Mock(return_value=q)
             return q
         
         tbl.select = select
@@ -115,9 +122,59 @@ def _mock_db():
         elif name == "etl_state":
             state["etl_state"][item["source_id"]] = dict(item)
 
+    def rpc(func_name, params):
+        result = Mock()
+        if func_name == "atomic_upsert_person":
+            person = {
+                "person_record_id": params["_person_record_id"],
+                "full_name": params["_full_name"],
+                "given_name": params["_given_name"],
+                "family_name": params["_family_name"],
+                "age": params["_age"],
+                "last_known_location": params["_last_known_location"],
+                "description": params["_description"],
+                "photo_url": params["_photo_url"],
+                "status": params["_status"],
+                "author_name": params["_author_name"],
+                "phonetic_hash": params["_phonetic_hash"],
+                "location_normalized": params["_location_normalized"],
+                "created_at": params["_created_at"],
+                "updated_at": params["_updated_at"],
+            }
+            pid = person["person_record_id"]
+            if pid in state["persons"]:
+                state["persons"][pid].update(person)
+            else:
+                state["persons"][pid] = person
+
+            source_record = {
+                "person_record_id": params["_person_record_id"],
+                "source_id": params["_source_id"],
+                "external_id": params["_external_id"],
+                "source_date": params["_source_date"],
+                "contacto": params["_contacto"],
+                "localizado_por": params["_localizado_por"],
+                "localizado_contacto": params["_localizado_contacto"],
+                "localizado_relacion": params["_localizado_relacion"],
+                "localizado_nota": params["_localizado_nota"],
+            }
+            existing_sr = None
+            for sr in state["source_records"]:
+                if sr.get("source_id") == source_record["source_id"] and sr.get("external_id") == source_record["external_id"]:
+                    existing_sr = sr
+                    break
+            if existing_sr:
+                existing_sr.update(source_record)
+            else:
+                state["source_records"].append(source_record)
+
+            result.execute.return_value.data = [params["_person_record_id"]]
+        return result
+
     client = Mock()
     client.schema = Mock(return_value=Mock(table=_table))
     client.table = _table
+    client.rpc = rpc
     client.storage = Mock()
     client.storage.from_.return_value.upload = Mock()
     return client, state

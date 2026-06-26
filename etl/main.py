@@ -10,6 +10,7 @@ from etl.export_pfif import export_pfif
 from etl.normalize import normalize_location
 from etl.sources.loader import fetch as source_fetch
 from etl.sources.loader import get_source, list_source_ids
+from etl.stats import RunStats
 
 log = logging.getLogger(__name__)
 
@@ -36,11 +37,13 @@ def _build_note_text(record: dict, source_config: dict) -> str:
 def run(source_id: str) -> None:
     client = db.get_client()
     source_config = get_source(source_id)
+    stats = RunStats(source_id=source_id)
 
     last_run = db.get_etl_state(client, source_id) or "1970-01-01T00:00:00Z"
     records = source_fetch(source_config, updated_after=last_run)
 
-    log.info("Fetched %d records from source %s (since %s)", len(records), source_id, last_run)
+    stats.total_fetched = len(records)
+    log.info("Fetched %d records from source %s (since %s)", stats.total_fetched, source_id, last_run)
 
     now = datetime.now(timezone.utc).isoformat()
     run_id = str(uuid.uuid4())
@@ -67,6 +70,7 @@ def run(source_id: str) -> None:
                         "updated_at": now,
                     },
                 )
+                stats.updated += 1
             else:
                 match = None
                 if loc_norm is not None:
@@ -90,6 +94,8 @@ def run(source_id: str) -> None:
                             "created_at": now,
                         },
                     )
+                    stats.merged += 1
+                    stats.notes_added += 1
                 else:
                     db.create_person(
                         client,
@@ -110,6 +116,7 @@ def run(source_id: str) -> None:
                             "updated_at": now,
                         },
                     )
+                    stats.created += 1
 
             db.upsert_source_record(
                 client,
@@ -125,18 +132,24 @@ def run(source_id: str) -> None:
                     "localizado_nota": record.get("localizado_nota"),
                 },
             )
+            stats.source_records_upserted += 1
         except Exception:
             log.exception("Failed to process record external_id=%s", record.get("external_id"))
+            stats.errors += 1
 
     db.update_etl_state_run(client, source_id, now, run_id)
 
     persons = db.get_all_persons(client)
     notes = db.get_all_notes(client)
     pfif_xml = export_pfif(persons, notes)
-    log.info("Exported %d persons, %d notes, XML size %d bytes", len(persons), len(notes), len(pfif_xml))
+    stats.persons_exported = len(persons)
+    stats.pfif_bytes = len(pfif_xml)
+    log.info("Exported %d persons, %d notes, XML size %d bytes", stats.persons_exported, len(notes), stats.pfif_bytes)
     db.upload_pfif(client, pfif_xml)
     log.info("Upload completed for source %s", source_id)
-    log.info("ETL run completed for source %s", source_id)
+
+    stats.log_summary()
+    stats.exit_if_errors()
 
 
 def main() -> None:

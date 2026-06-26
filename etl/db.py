@@ -77,7 +77,7 @@ def update_person(client, person_record_id: str, updates: dict) -> None:
 
 
 def add_note(client, note: dict) -> None:
-    _tbl(client, "notes").insert(note).execute()
+    _tbl(client, "notes").upsert(note, on_conflict=["note_record_id"]).execute()
 
 
 def update_etl_state(client, source_id: str, last_run: str) -> None:

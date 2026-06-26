@@ -102,6 +102,16 @@ def _mock_db():
                 existing.update(item)
             else:
                 state["source_records"].append(dict(item))
+        elif name == "notes":
+            existing = None
+            for note in state["notes"]:
+                if note.get("note_record_id") == item.get("note_record_id"):
+                    existing = note
+                    break
+            if existing:
+                existing.update(item)
+            else:
+                state["notes"].append(dict(item))
         elif name == "etl_state":
             state["etl_state"][item["source_id"]] = dict(item)
 

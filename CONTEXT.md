@@ -22,7 +22,7 @@ A single raw PFIF `<person>` element as received from a Source. Stored in `sourc
 The unified internal schema (Supabase `persons` table) into which all Source Records are transformed, deduplicated, and merged before PFIF re-export.
 
 **person_record_id**:
-Deterministic identifier derived as `sha256(phonetic_hash + "|" + normalized_location)[:12]`. The ETL generates this, ignoring the Source's native ID. Guarantees the same person+location always maps to the same ID across sources.
+Deterministic identifier derived as `sha256(phonetic_hash + "|" + normalized_location)[:16]`. The ETL generates this, ignoring the Source's native ID. Guarantees the same person+location always maps to the same ID across sources.
 
 **Phonetic Match**:
 Two Person records are considered the same if Double Metaphone similarity >90% and their normalized locations match. The algorithm merges them under one person_record_id and adds the second source's data as a historical note.

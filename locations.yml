@@ -1,4 +1,5 @@
 canonical:
+  # --- La Guaira / Vargas (existing entries, preserved) ---
   catia la mar:
     - catia
     - catita
@@ -14,3 +15,134 @@ canonical:
     - tanaguanera
   naiguata:
     - naiguatá
+
+  # --- Distrito Capital ---
+  caracas:
+    - ccs
+    - caracas df
+    - caracas distrito capital
+    - caracas d.c.
+
+  # --- Miranda (norte-centro) ---
+  el hatillo:
+    - hatillo
+  guarenas:
+    - guarenas miranda
+  guatire:
+    - guatire miranda
+  charallave:
+    - charallave miranda
+  los teques:
+    - los teques miranda
+  san antonio de los altos:
+    - san antonio los altos
+    - san antonio de los altos miranda
+  higuerote:
+    - higuerote miranda
+
+  # --- Zulia ---
+  maracaibo:
+    - maracaivo
+
+  # --- Carabobo ---
+  valencia:
+    - valencia carabobo
+
+  # --- Aragua ---
+  maracay:
+    - maracay aragua
+
+  # --- Lara ---
+  barquisimeto:
+    - barquisimento
+
+  # --- Mérida ---
+  merida:
+    - mérida
+    - merida estado
+
+  # --- Táchira ---
+  san cristobal:
+    - san cristóbal
+    - sancristobal
+
+  # --- Bolívar ---
+  puerto ordaz:
+    - pto ordaz
+    - puertoordaz
+    - pto. ordaz
+  ciudad guayana:
+    - san felix
+    - cd guayana
+  ciudad bolivar:
+    - ciudad bolívar
+    - cd bolivar
+
+  # --- Anzoátegui ---
+  barcelona:
+    - barcelona anz
+  puerto la cruz:
+    - puerto la cruz anz
+    - plc
+  el tigre:
+    - el tigre anz
+
+  # --- Monagas ---
+  maturin:
+    - maturín
+
+  # --- Sucre ---
+  cumana:
+    - cumaná
+
+  # --- Falcón ---
+  coro:
+    - santa ana de coro
+  punto fijo:
+    - punto fijo falcon
+
+  # --- Yaracuy ---
+  san felipe:
+    - san felipe yaracuy
+
+  # --- Trujillo ---
+  trujillo:
+    - trujillo estado
+    - trujillo venezuela
+  valera:
+    - valera trujillo
+
+  # --- Barinas ---
+  barinas:
+    - barinas estado
+
+  # --- Portuguesa ---
+  guanare:
+    - guanare portuguesa
+  acarigua:
+    - acarigua portuguesa
+
+  # --- Cojedes ---
+  san carlos:
+    - san carlos cojedes
+
+  # --- Guárico ---
+  calabozo:
+    - calabozo guarico
+  san juan de los morros:
+    - san juan los morros
+
+  # --- Nueva Esparta ---
+  porlamar:
+    - porlamar margarita
+    - margarita
+  la asuncion:
+    - la asunción
+
+  # --- Delta Amacuro ---
+  tucupita:
+    - tucupita delta
+
+  # --- Amazonas ---
+  puerto ayacucho:
+    - puerto ayacucho amazonas

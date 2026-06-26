@@ -105,6 +105,33 @@ Cada ciclo el ETL genera un archivo PFIF 1.5 consolidado con todos los registros
 
 La URL de descarga se publicará en este README cuando el sistema esté en producción.
 
+## Semántica de notas históricas (merges)
+
+Cuando dos registros de diferentes fuentes se consideran la misma persona (similitud fonética >90 % y misma ubicación normalizada), el ETL **no** crea una segunda persona canónica. En su lugar, el registro de la fuente secundaria se almacena como una nota histórica adjunta a la persona canónica existente, siguiendo el formato de `<pfif:note>`.
+
+Cada nota se genera con el siguiente formato (producido por `_build_note_text`):
+
+```
+[namespace]: original_id=<external_id>
+photo_url=<url>                      (si existe)
+nota=<texto>                         (si existe)
+```
+
+Ejemplo:
+
+```
+[midominio.org]: original_id=midominio.org/a1b2c3
+photo_url=https://tudominio.com/fotos/123.jpg
+nota=Reportado como localizado en hospital de Valencia
+```
+
+### Comportamiento actual
+
+- El campo `status` de la persona canónica **no** se actualiza automáticamente con los valores de las notas históricas. Si una fuente secundaria reporta un cambio de estatus (ej. «localizado»), esa información queda únicamente en la nota, no en el registro principal.
+- Los consumidores del archivo PFIF deben leer las notas históricas para conocer cambios de estatus reportados por otras fuentes.
+- Las notas deben tratarse como metadatos de procedencia / auditoría, **no** como cambios de estatus autoritativos.
+- En una próxima actualización se implementará propagación de estatus desde notas históricas al registro canónico.
+
 ## Migraciones
 
 Las migraciones están en `db/migrations/`. Aplicarlas en orden numérico.
@@ -126,7 +153,7 @@ supabase db push
 ## Stack
 
 - **ETL**: Python 3.12 + httpx + phonetics + python-Levenshtein
-- **Base de datos**: Supabase (PostgreSQL 15), schema `localize`. Migraciones en `db/migrations/`.
+- **Base de datos**: Supabase (PostgreSQL 15), schema `localize`. Migraciones en `db/migrations/`. Se usará la extensión `pg_trgm` para búsqueda difusa al optimizar el emparejamiento fonético.
 - **Orquestación**: GitHub Actions (cron `*/10 * * * *`, matrix por fuente)
 - **Formato de exportación**: PFIF 1.5
 

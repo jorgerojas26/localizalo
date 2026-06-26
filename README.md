@@ -4,14 +4,14 @@ Consolida reportes de personas desaparecidas tras el terremoto de Venezuela 2026
 
 ## Cómo funciona
 
-1. **Fuentes**: Cada plataforma expone un endpoint `GET /pfif` que devuelve JSON con sus reportes.
+1. **Fuentes**: Cada plataforma expone un endpoint `GET /pfif`. El formato preferido es PFIF 1.5 XML (negociado vía `Accept: application/xml`); el ETL también acepta JSON para fuentes legacy (negociado por Content-Type).
 2. **ETL**: Un pipeline en Python corre cada 10 minutos vía GitHub Actions. Por cada fuente:
    - Recorre páginas con `updated_after`, `page` y `limit`
    - Normaliza nombres (Double Metaphone) y ubicaciones (sinónimos curados)
    - Deduplica: mismo nombre fonético + misma ubicación → mismo `person_record_id`
-   - Si la similitud fonética es >90 % y la ubicación coincide, fusiona automáticamente bajo un mismo ID y agrega los datos de la fuente secundaria como nota histórica
+    - Phonetic Match: cercanía fonética >= PHONETIC_THRESHOLD (0.8) Y (similitud Levenshtein del nombre >= NAME_SIMILARITY_THRESHOLD (0.9) O similitud Levenshtein de clave fonética española >= 0.9), más ubicación normalizada idéntica -> fusión bajo un person_record_id con nota histórica
 3. **Almacenamiento**: Los datos canónicos viven en Supabase (PostgreSQL), schema `localize`.
-4. **Exportación**: Cada ciclo genera PFIF 1.5 consolidado y lo sube a Supabase Storage (`/pfif/export.xml`).
+4. **Exportación**: El job consolidator (`etl/export.py`) ejecuta reconciliación cruzada entre fuentes vía `reconcile_duplicate_persons`, genera el PFIF 1.5 consolidado con todos los registros deduplicados y sus notas históricas, y lo sube a Supabase Storage (`/pfif/export.xml`).
 
 ## Cómo ser una fuente
 
@@ -31,34 +31,34 @@ GET /pfif?updated_after=<ISO 8601>&page=<int>&limit=<int>
 
 ### Respuesta
 
-Array JSON plano. Ejemplo:
+Formato preferido: PFIF 1.5 XML. El ETL negocia vía cabecera `Accept: application/xml`; si la fuente responde con `Content-Type: application/json`, el ETL tolera un array JSON plano como formato legacy.
 
-```json
-[
-  {
-    "external_id": "midominio.com/a1b2c3",
-    "full_name": "María Fernández",
-    "given_name": "María",
-    "family_name": "Fernández",
-    "age": 30,
-    "last_known_location": "Catia La Mar",
-    "description": "Cabello negro, ojos marrones",
-    "photo_url": "https://tudominio.com/fotos/123.jpg",
-    "status": "missing",
-    "source_date": "2026-06-25T13:58:00Z",
-    "author_name": "Familiar",
-    "contacto": "+58 412-1234567",
-    "localizado_por": null,
-    "localizado_contacto": null,
-    "localizado_relacion": null,
-    "localizado_nota": null
-  }
-]
+Ejemplo con un solo registro en PFIF 1.5 XML:
+
+```xml
+<?xml version="1.0" encoding="UTF-8"?>
+<pfif:pfif xmlns:pfif="http://zesty.ca/pfif/1.5">
+  <pfif:person>
+    <pfif:person_record_id>midominio.com/a1b2c3</pfif:person_record_id>
+    <pfif:full_name>María Fernández</pfif:full_name>
+    <pfif:given_name>María</pfif:given_name>
+    <pfif:family_name>Fernández</pfif:family_name>
+    <pfif:age>30</pfif:age>
+    <pfif:last_known_location>Catia La Mar</pfif:last_known_location>
+    <pfif:description>Cabello negro, ojos marrones</pfif:description>
+    <pfif:photo_url>https://tudominio.com/fotos/123.jpg</pfif:photo_url>
+    <pfif:status>missing</pfif:status>
+    <pfif:source_date>2026-06-25T13:58:00Z</pfif:source_date>
+    <pfif:author_name>Familiar</pfif:author_name>
+  </pfif:person>
+</pfif:pfif>
 ```
+
+Los campos adicionales (`contacto`, `localizado_por`, etc.) pueden incluirse como elementos `<pfif:contacto>`, etc., o dentro de `<pfif:other>`.
 
 ### Paginación
 
-El ETL itera `page=1, 2, 3...` hasta que el array devuelto esté vacío o tenga menos elementos que `limit`.
+El ETL itera `page=1, 2, 3...` hasta que la respuesta contenga cero registros o menos elementos que `limit`.
 
 ### Campo `status`
 
@@ -107,7 +107,7 @@ La URL de descarga se publicará en este README cuando el sistema esté en produ
 
 ## Semántica de notas históricas (merges)
 
-Cuando dos registros de diferentes fuentes se consideran la misma persona (similitud fonética >90 % y misma ubicación normalizada), el ETL **no** crea una segunda persona canónica. En su lugar, el registro de la fuente secundaria se almacena como una nota histórica adjunta a la persona canónica existente, siguiendo el formato de `<pfif:note>`.
+Cuando dos registros de diferentes fuentes se consideran la misma persona vía Phonetic Match (cercanía fonética >= PHONETIC_THRESHOLD (0.8), similitud de nombre >= NAME_SIMILARITY_THRESHOLD (0.9) y misma ubicación normalizada), el ETL **no** crea una segunda persona canónica. En su lugar, el registro de la fuente secundaria se almacena como una nota histórica adjunta a la persona canónica existente, siguiendo el formato de `<pfif:note>`.
 
 Cada nota se genera con el siguiente formato (producido por `_build_note_text`):
 
@@ -127,10 +127,9 @@ nota=Reportado como localizado en hospital de Valencia
 
 ### Comportamiento actual
 
-- El campo `status` de la persona canónica **no** se actualiza automáticamente con los valores de las notas históricas. Si una fuente secundaria reporta un cambio de estatus (ej. «localizado»), esa información queda únicamente en la nota, no en el registro principal.
-- Los consumidores del archivo PFIF deben leer las notas históricas para conocer cambios de estatus reportados por otras fuentes.
-- Las notas deben tratarse como metadatos de procedencia / auditoría, **no** como cambios de estatus autoritativos.
-- En una próxima actualización se implementará propagación de estatus desde notas históricas al registro canónico.
+- El campo `status` de la persona canónica **sí** se actualiza cuando una fuente secundaria reporta un estatus de mayor prioridad (deceased > found > injured > missing > unknown), tanto en `atomic_upsert_person` (colisión de person_record_id) como en `atomic_merge_note` (Phonetic Match). El orden de prioridad está definido por `status_to_priority` en la migración 012.
+- Si el estatus reportado tiene igual o menor prioridad que el actual, el cambio queda únicamente en la nota histórica y no se propaga al registro canónico.
+- Las notas deben tratarse como metadatos de procedencia / auditoría; el consumo de la nota es necesario para conocer estados alternativos reportados por otras fuentes.
 
 ## Migraciones
 
@@ -154,6 +153,13 @@ supabase db push
 
 - **ETL**: Python 3.12 + httpx + phonetics + python-Levenshtein
 - **Base de datos**: Supabase (PostgreSQL 15), schema `localize`. Migraciones en `db/migrations/`. Se usará la extensión `pg_trgm` para búsqueda difusa al optimizar el emparejamiento fonético.
-- **Orquestación**: GitHub Actions (cron `*/10 * * * *`, matrix por fuente)
+- **Orquestación**: GitHub Actions (cron `*/10 * * * *`, matrix por fuente + consolidator)
 - **Formato de exportación**: PFIF 1.5
+
+### Seguridad
+
+- Schema `localize` con RLS habilitado.
+- Las tablas `persons`, `notes` y `source_records` tienen políticas SELECT público (lectura sin autenticación).
+- Todos los RPC de escritura/mezcla (`atomic_upsert_person`, `atomic_merge_note`, `reconcile_duplicate_persons`) son SECURITY DEFINER. Su ejecución está restringida a los roles `authenticated` y `service_role`; los roles `anon` y `public` tienen el execute revocado (migraciones 010, 014).
+- El ETL se conecta usando la clave `service_role` (vía `SUPABASE_SERVICE_KEY`) para invocar estos RPC.
 

@@ -61,9 +61,9 @@ def _retry(max_attempts=3, base_delay=1.0):
     return decorator
 
 
-def compute_note_record_id(person_record_id: str, note_text: str, source_date: str | None) -> str:
+def compute_note_record_id(person_record_id: str, source_id: str, external_id: str) -> str:
     return hashlib.sha256(
-        f"{person_record_id}|{note_text}|{source_date or ''}".encode()
+        f"{person_record_id}|{source_id}|{external_id}".encode()
     ).hexdigest()[:16]
 
 
@@ -85,6 +85,20 @@ def upsert_source_record(client, record: dict) -> None:
     _tbl(client, "source_records").upsert(
         record, on_conflict=["source_id", "external_id"]
     ).execute()
+
+
+@_retry()
+def source_record_exists(client, person_record_id: str, source_id: str, external_id: str) -> bool:
+    result = (
+        _tbl(client, "source_records")
+        .select("id")
+        .eq("person_record_id", person_record_id)
+        .eq("source_id", source_id)
+        .eq("external_id", external_id)
+        .limit(1)
+        .execute()
+    )
+    return bool(result.data)
 
 
 @_retry()
@@ -200,8 +214,17 @@ def atomic_merge_note(client, note: dict, source_record: dict) -> None:
 
 @_retry()
 def update_etl_state_run(client, source_id: str, last_run: str, run_id: str) -> None:
+    """Deprecated: use update_etl_state_watermark instead."""
     _tbl(client, "etl_state").upsert(
         {"source_id": source_id, "last_run": last_run, "run_id": run_id},
+        on_conflict=["source_id"],
+    ).execute()
+
+
+@_retry()
+def update_etl_state_watermark(client, source_id: str, watermark: str, run_id: str) -> None:
+    _tbl(client, "etl_state").upsert(
+        {"source_id": source_id, "last_run": watermark, "run_id": run_id},
         on_conflict=["source_id"],
     ).execute()
 

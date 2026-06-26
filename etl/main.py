@@ -4,7 +4,7 @@ import os
 import uuid
 import logging
 import sys
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 try:
     import sentry_sdk
@@ -12,8 +12,7 @@ except ImportError:
     sentry_sdk = None  # type: ignore[assignment]
 
 from etl import db
-from etl.dedup import phonetic_hash
-from etl.export_pfif import export_pfif
+from etl.dedup import phonetic_hash, is_match
 from etl.normalize import normalize_location
 from etl.sources.loader import fetch as source_fetch
 from etl.sources.loader import get_source, list_source_ids
@@ -39,6 +38,60 @@ def _build_note_text(record: dict, source_config: dict) -> str:
     return " | ".join(parts)
 
 
+def _compute_watermark(records: list[dict], last_run: str) -> str:
+    """Compute watermark = max(source_date) - 1s, or last_run if no valid source_dates."""
+    max_dt = None
+    for record in records:
+        sd = record.get("source_date")
+        if sd is None:
+            continue
+        try:
+            dt = datetime.fromisoformat(sd)
+            if dt.tzinfo is None:
+                dt = dt.replace(tzinfo=timezone.utc)
+            if max_dt is None or dt > max_dt:
+                max_dt = dt
+        except (ValueError, TypeError):
+            continue
+    if max_dt is None:
+        return last_run
+    watermark_dt = max_dt - timedelta(seconds=1)
+    return watermark_dt.isoformat()
+
+
+def _build_person(record: dict, pid: str, ph: str, loc_norm: str | None, now: str) -> dict:
+    return {
+        "person_record_id": pid,
+        "full_name": record["full_name"],
+        "given_name": record.get("given_name"),
+        "family_name": record.get("family_name"),
+        "age": record.get("age"),
+        "last_known_location": record.get("last_known_location"),
+        "description": record.get("description"),
+        "photo_url": record.get("photo_url"),
+        "status": record.get("status", "unknown"),
+        "author_name": record.get("author_name"),
+        "phonetic_hash": ph,
+        "location_normalized": loc_norm,
+        "created_at": now,
+        "updated_at": now,
+    }
+
+
+def _build_source_record(record: dict, pid: str, source_id: str) -> dict:
+    return {
+        "person_record_id": pid,
+        "source_id": source_id,
+        "external_id": record["external_id"],
+        "source_date": record.get("source_date"),
+        "contacto": record.get("contacto"),
+        "localizado_por": record.get("localizado_por"),
+        "localizado_contacto": record.get("localizado_contacto"),
+        "localizado_relacion": record.get("localizado_relacion"),
+        "localizado_nota": record.get("localizado_nota"),
+    }
+
+
 def run(source_id: str) -> None:
     """Run ETL pipeline for a single source.
 
@@ -47,7 +100,8 @@ def run(source_id: str) -> None:
     - atomic_upsert_person uses ON CONFLICT DO UPDATE on person_record_id
     - source_records use ON CONFLICT (source_id, external_id)
     - notes use ON CONFLICT (note_record_id) where note_record_id is deterministic
-    - etl_state is only updated after successful export+upload
+    - etl_state watermark is computed from max(source_date) across fetched records,
+      NOT from wall-clock time, to avoid TOCTOU data loss.
     Safe to re-run or run concurrently across different sources.
     """
     client = db.get_client()
@@ -56,13 +110,25 @@ def run(source_id: str) -> None:
 
     _default_after = os.environ.get("ETL_DEFAULT_UPDATED_AFTER", "1970-01-01T00:00:00Z")
     last_run = db.get_etl_state(client, source_id) or _default_after
-    records = source_fetch(source_config, updated_after=last_run)
+
+    # Bug #14: handle partial fetch gracefully — do not crash the run.
+    # TODO: loader partial-record retention is a TODO for the loader agent.
+    try:
+        records = source_fetch(source_config, updated_after=last_run)
+    except RuntimeError as e:
+        log.warning("Fetch aborted partway: %s. Continuing with 0 records; watermark NOT advanced.", e)
+        stats.errors += 1
+        stats.log_summary()
+        return
 
     stats.total_fetched = len(records)
     log.info("Fetched %d records from source %s (since %s)", stats.total_fetched, source_id, last_run)
 
     now = datetime.now(timezone.utc).isoformat()
     run_id = str(uuid.uuid4())
+
+    # Bug #1: watermark from max(source_date) across records, not wall-clock now.
+    watermark = _compute_watermark(records, last_run)
 
     for record in records:
         try:
@@ -73,52 +139,35 @@ def run(source_id: str) -> None:
             existing = db.find_person_by_id(client, pid)
 
             if existing:
-                db.atomic_upsert_person(
-                    client,
-                    {
-                        "person_record_id": pid,
-                        "full_name": record["full_name"],
-                        "given_name": record.get("given_name"),
-                        "family_name": record.get("family_name"),
-                        "age": record.get("age"),
-                        "last_known_location": record.get("last_known_location"),
-                        "description": record.get("description"),
-                        "photo_url": record.get("photo_url"),
-                        "status": record.get("status", "unknown"),
-                        "author_name": record.get("author_name"),
-                        "phonetic_hash": ph,
-                        "location_normalized": loc_norm,
-                        "created_at": now,
-                        "updated_at": now,
-                    },
-                    {
-                        "person_record_id": pid,
-                        "source_id": source_id,
-                        "external_id": record["external_id"],
-                        "source_date": record.get("source_date"),
-                        "contacto": record.get("contacto"),
-                        "localizado_por": record.get("localizado_por"),
-                        "localizado_contacto": record.get("localizado_contacto"),
-                        "localizado_relacion": record.get("localizado_relacion"),
-                        "localizado_nota": record.get("localizado_nota"),
-                    },
+                same_source = db.source_record_exists(
+                    client, pid, source_id, record["external_id"]
                 )
-                stats.updated += 1
-                stats.source_records_upserted += 1
-            else:
-                match = db.find_person_by_phonetic_match(
-                    client, record["full_name"], loc_norm
-                )
-                # Merge is atomic via RPC — note + source_record inserted in single transaction.
-                # ON CONFLICT (note_record_id) DO NOTHING handles cross-source races safely.
-                if match:
+                if not is_match(record["full_name"], existing["full_name"]):
+                    # Bug #2: false-positive pid collision — different Person with
+                    # same phonetic_hash + location. Disambiguate via suffix.
+                    discriminator = hashlib.sha256(
+                        f"{source_id}|{record['external_id']}".encode()
+                    ).hexdigest()[:8]
+                    pid = f"{pid}-{discriminator}"
+                    existing = None  # fall through to else branch
+                elif same_source:
+                    # Same source re-reporting: refresh via upsert (no note).
+                    db.atomic_upsert_person(
+                        client,
+                        _build_person(record, pid, ph, loc_norm, now),
+                        _build_source_record(record, pid, source_id),
+                    )
+                    stats.updated += 1
+                    stats.source_records_upserted += 1
+                else:
+                    # Cross-source match on same pid: merge secondary as historical note.
                     note_text = _build_note_text(record, source_config)
                     db.atomic_merge_note(
                         client,
                         {
-                            "person_record_id": match["person_record_id"],
+                            "person_record_id": pid,
                             "note_record_id": db.compute_note_record_id(
-                                match["person_record_id"], note_text, record.get("source_date", "")
+                                pid, source_id, record["external_id"]
                             ),
                             "note_text": note_text,
                             "author_name": record.get("author_name"),
@@ -126,16 +175,32 @@ def run(source_id: str) -> None:
                             "source_date": record.get("source_date"),
                             "created_at": now,
                         },
+                        _build_source_record(record, pid, source_id),
+                    )
+                    stats.merged += 1
+                    stats.notes_added += 1
+                    stats.source_records_upserted += 1
+
+            if not existing:
+                match = db.find_person_by_phonetic_match(
+                    client, record["full_name"], loc_norm
+                )
+                if match:
+                    note_text = _build_note_text(record, source_config)
+                    db.atomic_merge_note(
+                        client,
                         {
-                            "source_id": source_id,
-                            "external_id": record["external_id"],
+                            "person_record_id": match["person_record_id"],
+                            "note_record_id": db.compute_note_record_id(
+                                match["person_record_id"], source_id, record["external_id"]
+                            ),
+                            "note_text": note_text,
+                            "author_name": record.get("author_name"),
+                            "status": record.get("status"),
                             "source_date": record.get("source_date"),
-                            "contacto": record.get("contacto"),
-                            "localizado_por": record.get("localizado_por"),
-                            "localizado_contacto": record.get("localizado_contacto"),
-                            "localizado_relacion": record.get("localizado_relacion"),
-                            "localizado_nota": record.get("localizado_nota"),
+                            "created_at": now,
                         },
+                        _build_source_record(record, match["person_record_id"], source_id),
                     )
                     stats.merged += 1
                     stats.notes_added += 1
@@ -143,33 +208,8 @@ def run(source_id: str) -> None:
                 else:
                     db.atomic_upsert_person(
                         client,
-                        {
-                            "person_record_id": pid,
-                            "full_name": record["full_name"],
-                            "given_name": record.get("given_name"),
-                            "family_name": record.get("family_name"),
-                            "age": record.get("age"),
-                            "last_known_location": record.get("last_known_location"),
-                            "description": record.get("description"),
-                            "photo_url": record.get("photo_url"),
-                            "status": record.get("status", "unknown"),
-                            "author_name": record.get("author_name"),
-                            "phonetic_hash": ph,
-                            "location_normalized": loc_norm,
-                            "created_at": now,
-                            "updated_at": now,
-                        },
-                        {
-                            "person_record_id": pid,
-                            "source_id": source_id,
-                            "external_id": record["external_id"],
-                            "source_date": record.get("source_date"),
-                            "contacto": record.get("contacto"),
-                            "localizado_por": record.get("localizado_por"),
-                            "localizado_contacto": record.get("localizado_contacto"),
-                            "localizado_relacion": record.get("localizado_relacion"),
-                            "localizado_nota": record.get("localizado_nota"),
-                        },
+                        _build_person(record, pid, ph, loc_norm, now),
+                        _build_source_record(record, pid, source_id),
                     )
                     stats.created += 1
                     stats.source_records_upserted += 1
@@ -179,33 +219,19 @@ def run(source_id: str) -> None:
                 sentry_sdk.capture_exception()
             stats.errors += 1
 
-    if stats.created + stats.updated + stats.merged + stats.notes_added == 0:
-        log.info("No changes detected. Skipping export and upload.")
-        db.update_etl_state_run(client, source_id, now, run_id)
+    # Bug #10: per-source PFIF export/upload removed; consolidator owns publishing.
+    if stats.created + stats.updated + stats.merged + stats.notes_added == 0 and stats.errors == 0:
+        log.info("No changes detected. Advancing watermark.")
+        db.update_etl_state_watermark(client, source_id, watermark, run_id)
         stats.run_id = run_id
         stats.log_summary()
         return
 
-    pfif_xml = export_pfif(
-        db.get_all_persons_paged(client),
-        db.get_all_notes_paged(client),
-    )
     stats.persons_exported = db.count_persons(client)
-    stats.pfif_bytes = len(pfif_xml)
-    log.info("Exported %d persons, %d notes, XML size %d bytes", stats.persons_exported, db.count_notes(client), stats.pfif_bytes)
-
-    try:
-        db.upload_pfif(client, pfif_xml, run_id)
-        log.info("Upload completed for source %s (run %s)", source_id, run_id)
-    except Exception:
-        log.exception("PFIF upload failed for source %s. etl_state NOT updated.", source_id)
-        stats.errors += 1
-        stats.run_id = run_id
-        stats.log_summary()
-        sys.exit(1)
+    log.info("Processed records for source %s. Persons in DB: %d", source_id, stats.persons_exported)
 
     if stats.errors == 0:
-        db.update_etl_state_run(client, source_id, now, run_id)
+        db.update_etl_state_watermark(client, source_id, watermark, run_id)
     else:
         log.warning(
             "%d error(s) during run — etl_state watermark NOT advanced; "

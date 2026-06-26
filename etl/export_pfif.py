@@ -21,6 +21,21 @@ def _escape(s: str) -> str:
     return s
 
 
+def _format_utc_iso(val) -> str | None:
+    """Format a datetime or ISO string to YYYY-MM-DDTHH:MM:SSZ."""
+    if val is None:
+        return None
+    if isinstance(val, datetime):
+        dt = val
+    elif isinstance(val, str):
+        dt = datetime.fromisoformat(val.replace("Z", "+00:00"))
+    else:
+        return str(val)
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    return dt.strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
 def _add_xml(parts: list, tag: str, val):
     if val is not None and val != "":
         parts.append(f'    <{tag}>{_escape(str(val).strip())}</{tag}>')
@@ -36,8 +51,7 @@ def _person_xml(p: dict) -> str:
     _add_xml(parts, 'pfif:last_known_location', p.get('last_known_location'))
     _add_xml(parts, 'pfif:description', p.get('description'))
     _add_xml(parts, 'pfif:photo_url', p.get('photo_url'))
-    _add_xml(parts, 'pfif:status', p.get('status'))
-    _add_xml(parts, 'pfif:source_date', p.get('source_date'))
+    _add_xml(parts, 'pfif:entry_date', _format_utc_iso(p.get("created_at")))
     _add_xml(parts, 'pfif:author_name', p.get('author_name'))
     parts.append('  </pfif:person>')
     return '\n'.join(parts)
@@ -46,7 +60,7 @@ def _person_xml(p: dict) -> str:
 def _note_xml(n: dict) -> str:
     # Fallback mirrors the calculation in main.py / db.compute_note_record_id
     note_id = n.get("note_record_id") or db.compute_note_record_id(
-        n.get("person_record_id", ""), n.get("note_text", ""), n.get("source_date")
+        n.get("person_record_id", ""), n.get("source_id") or "", n.get("external_id") or ""
     )
     parts = ['  <pfif:note>']
     _add_xml(parts, 'pfif:note_record_id', note_id)

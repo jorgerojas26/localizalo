@@ -12,7 +12,7 @@ except ImportError:
     sentry_sdk = None  # type: ignore[assignment]
 
 from etl import db
-from etl.dedup import phonetic_hash, is_match
+from etl.dedup import phonetic_hash, is_match, is_full_match
 from etl.normalize import normalize_location
 from etl.sources.loader import fetch as source_fetch
 from etl.sources.loader import get_source, list_source_ids
@@ -115,7 +115,7 @@ def run(source_id: str) -> None:
     # TODO: loader partial-record retention is a TODO for the loader agent.
     try:
         records = source_fetch(source_config, updated_after=last_run)
-    except RuntimeError as e:
+    except Exception as e:
         log.warning("Fetch aborted partway: %s. Continuing with 0 records; watermark NOT advanced.", e)
         stats.errors += 1
         stats.log_summary()
@@ -142,7 +142,11 @@ def run(source_id: str) -> None:
                 same_source = db.source_record_exists(
                     client, pid, source_id, record["external_id"]
                 )
-                if not is_match(record["full_name"], existing["full_name"]):
+                if not is_full_match(
+                    record["full_name"], existing["full_name"],
+                    record.get("age"), existing.get("age"),
+                    record.get("contacto"), existing.get("contacto"),
+                ):
                     # Bug #2: false-positive pid collision — different Person with
                     # same phonetic_hash + location. Disambiguate via suffix.
                     discriminator = hashlib.sha256(

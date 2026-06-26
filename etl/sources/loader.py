@@ -152,7 +152,7 @@ def list_source_ids() -> list[str]:
 
 def fetch(source_config: dict, updated_after: str) -> list[dict]:
     records = []
-    page = 1
+    offset = 0
     url = source_config["base_url"].rstrip("/") + "/pfif"
     max_retries = 3
 
@@ -169,7 +169,7 @@ def fetch(source_config: dict, updated_after: str) -> list[dict]:
                         url,
                         params={
                             "updated_after": updated_after,
-                            "page": page,
+                            "offset": offset,
                             "limit": PAGE_LIMIT,
                         },
                         headers={"accept": "application/json, application/xml"},
@@ -187,16 +187,16 @@ def fetch(source_config: dict, updated_after: str) -> list[dict]:
                         raw_records = resp.json()
                     data = [sanitize_record(r) for r in raw_records]
                     data = [r for r in data if r is not None]
-                    log.info("Fetched page %d: %d records", page, len(data))
+                    log.info("Fetched offset %d: %d records", offset, len(data))
                     break
                 except Exception as e:
                     if attempt == max_retries - 1:
-                        log.error("All retries exhausted for page %d: %s. %d records fetched before failure.",
-                                  page, e, len(records))
+                        log.error("All retries exhausted for offset %d: %s. %d records fetched before failure.",
+                                  offset, e, len(records))
                         raise RuntimeError(
-                            f"Fetch failed for {source_config['id']} at page {page}: {e}"
+                            f"Fetch failed for {source_config['id']} at offset {offset}: {e}"
                         ) from e
-                    log.warning("Retry %d for page %d: %s", attempt + 1, page, e)
+                    log.warning("Retry %d for offset %d: %s", attempt + 1, offset, e)
                     time.sleep(2 ** attempt)
 
             if not data:
@@ -206,7 +206,7 @@ def fetch(source_config: dict, updated_after: str) -> list[dict]:
 
             if len(data) < PAGE_LIMIT:
                 break
-            page += 1
+            offset += PAGE_LIMIT
 
     log.info("Fetch complete: %d total records", len(records))
     return records

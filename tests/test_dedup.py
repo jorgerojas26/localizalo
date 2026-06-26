@@ -43,6 +43,21 @@ def test_phonetic_hash_spanish_fallback():
     assert h == hashlib.sha256(b"spa:w").hexdigest()[:16]
 
 
+def test_spanish_phonetic_key_with_enne():
+    """ñ becomes ni in Spanish phonetic key (not stripped to n)."""
+    from etl.dedup import _spanish_phonetic_key
+    key_munoz = _spanish_phonetic_key("Muñoz")
+    key_munioz = _spanish_phonetic_key("Munioz")
+    assert key_munoz == key_munioz, f"{key_munoz} != {key_munioz}"
+    assert "ni" in key_munoz
+
+
+def test_is_match_with_enne():
+    """Names with ñ match equivalents using ni replacement."""
+    assert is_match("Muñoz", "Munioz") is True
+    assert is_match("Peña", "Penia") is True
+
+
 def test_phonetic_hash_purely_numeric():
     h = phonetic_hash("12345")
     assert isinstance(h, str)

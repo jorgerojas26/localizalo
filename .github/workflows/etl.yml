@@ -70,7 +70,7 @@ jobs:
 
   consolidator:
     needs: [matrix, tests, etl]
-    if: always()
+    if: ${{ success() || failure() }}
     runs-on: ubuntu-latest
     concurrency:
       group: etl-consolidator

@@ -27,10 +27,11 @@ def phonetic_hash(name: str) -> str:
 
 
 def _spanish_phonetic_key(name: str) -> str:
-    s = _strip_accents(name.strip().lower())
-    s = s.replace('á', 'a').replace('é', 'e').replace('í', 'i')
-    s = s.replace('ó', 'o').replace('ú', 'u').replace('ü', 'u')
+    s = name.strip().lower()
+    # ñ→ni must happen BEFORE _strip_accents because NFD decomposition
+    # turns ñ (U+00F1) into n + combining tilde, then strips the tilde.
     s = s.replace('ñ', 'ni')
+    s = _strip_accents(s)
     s = s.replace('ll', 'y')
     s = s.replace('ch', 'x')
     s = s.replace('rr', 'r')

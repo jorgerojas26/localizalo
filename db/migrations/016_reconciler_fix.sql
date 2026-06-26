@@ -38,8 +38,8 @@ BEGIN
             AND p1.location_normalized IS NOT DISTINCT FROM p2.location_normalized
             AND p1.full_name % p2.full_name
             AND similarity(p1.full_name, p2.full_name) > 0.5
-            AND p1.person_record_id NOT IN (SELECT pid FROM touched_pids)
-            AND p2.person_record_id NOT IN (SELECT pid FROM touched_pids)
+            AND NOT EXISTS (SELECT 1 FROM touched_pids WHERE pid = p1.person_record_id)
+            AND NOT EXISTS (SELECT 1 FROM touched_pids WHERE pid = p2.person_record_id)
         ORDER BY p1.person_record_id
         LIMIT max_pairs
     LOOP

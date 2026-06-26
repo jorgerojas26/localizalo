@@ -29,9 +29,17 @@ class RunStats:
             log.log(level, "  %s: %s", key, val)
 
     def exit_if_errors(self) -> None:
-        if self.errors > 0:
+        if self.errors == 0:
+            return
+        error_rate = self.errors / max(self.total_fetched, 1)
+        if error_rate > 0.1:
             log.error(
-                "ETL run had %d error(s). Check logs for details. Exiting with code 1.",
-                self.errors,
+                "ETL run had %d error(s) out of %d records (%.1f%%). Exiting with code 1.",
+                self.errors, self.total_fetched, error_rate * 100,
             )
             sys.exit(1)
+        else:
+            log.warning(
+                "ETL run had %d error(s) out of %d records (%.1f%%). Continuing.",
+                self.errors, self.total_fetched, error_rate * 100,
+            )

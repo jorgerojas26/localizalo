@@ -19,12 +19,16 @@ jobs:
     runs-on: ubuntu-latest
     # When source input is provided, only run that source; empty = run all
     if: ${{ github.event.inputs.source == '' || github.event.inputs.source == matrix.source }}
+    concurrency:
+      group: etl-${{ matrix.source }}
+      cancel-in-progress: true
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
       - run: pip install -r requirements.txt
+      - run: python -m pytest tests/ -v
       - run: python -m etl.main --source ${{ matrix.source }}
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}

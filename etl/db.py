@@ -1,6 +1,4 @@
 import os
-from datetime import datetime, timezone
-from typing import Optional
 
 from etl.dedup import is_match, phonetic_hash
 
@@ -19,7 +17,7 @@ def _tbl(client, name: str):
     return client.schema(_SCHEMA).table(name)
 
 
-def get_etl_state(client, source_id: str) -> Optional[str]:
+def get_etl_state(client, source_id: str) -> str | None:
     result = (
         _tbl(client, "etl_state")
         .select("last_run")
@@ -37,7 +35,7 @@ def upsert_source_record(client, record: dict) -> None:
     ).execute()
 
 
-def find_person_by_id(client, person_record_id: str) -> Optional[dict]:
+def find_person_by_id(client, person_record_id: str) -> dict | None:
     result = (
         _tbl(client, "persons")
         .select("*")
@@ -49,7 +47,7 @@ def find_person_by_id(client, person_record_id: str) -> Optional[dict]:
 
 def find_person_by_phonetic_match(
     client, name: str, location: str
-) -> Optional[dict]:
+) -> dict | None:
     if location is None:
         return None
     ph = phonetic_hash(name)
@@ -134,9 +132,20 @@ def get_all_notes(client) -> list[dict]:
     return records
 
 
-def upload_pfif(client, xml_content: str) -> None:
-    client.storage.from_("pfif").upload(
+def upload_pfif(client, xml_content: str, run_id: str) -> None:
+    content = xml_content.encode()
+    bucket = client.storage.from_("pfif")
+
+    # Versioned export — never overwritten (immutable per run)
+    bucket.upload(
+        f"exports/export_{run_id}.xml",
+        content,
+        {"content-type": "application/xml"},
+    )
+
+    # Latest symlink — always points to current
+    bucket.upload(
         "export.xml",
-        xml_content.encode(),
+        content,
         {"content-type": "application/xml", "upsert": "true"},
     )

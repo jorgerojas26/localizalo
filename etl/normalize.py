@@ -1,3 +1,4 @@
+import logging
 import re
 import unicodedata
 from pathlib import Path
@@ -7,10 +8,18 @@ import yaml
 _LOCATIONS_FILE = Path(__file__).resolve().parent.parent / "locations.yml"
 
 def _load_synonyms() -> dict[str, str]:
-    with open(_LOCATIONS_FILE) as f:
-        data = yaml.safe_load(f)
+    try:
+        with open(_LOCATIONS_FILE) as f:
+            data = yaml.safe_load(f)
+    except (FileNotFoundError, yaml.YAMLError) as e:
+        logging.getLogger(__name__).warning(
+            "Could not load %s: %s. No location synonyms active.",
+            _LOCATIONS_FILE,
+            e,
+        )
+        return {}
     synonyms = {}
-    for canonical, variants in data["canonical"].items():
+    for canonical, variants in data.get("canonical", {}).items():
         for v in variants:
             synonyms[v] = canonical
         synonyms[canonical] = canonical

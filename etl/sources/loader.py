@@ -1,4 +1,5 @@
 import logging
+import re
 from pathlib import Path
 import time
 
@@ -9,6 +10,29 @@ log = logging.getLogger(__name__)
 
 PAGE_LIMIT = 1000
 _SOURCES_FILE = Path(__file__).resolve().parent.parent.parent / "sources.yml"
+
+_URL_RE = re.compile(r'^https?://')
+
+
+def sanitize_record(record: dict) -> dict:
+    r = dict(record)
+    if r.get("photo_url") and not _URL_RE.match(str(r["photo_url"])):
+        r["photo_url"] = None
+    for field in ("full_name", "given_name", "family_name", "description",
+                  "contacto", "localizado_por", "localizado_contacto",
+                  "localizado_relacion", "localizado_nota"):
+        if r.get(field) and isinstance(r[field], str):
+            r[field] = r[field].strip()[:5000]
+    if r.get("age") is not None:
+        try:
+            age = int(r["age"])
+            if not (0 <= age <= 150):
+                r["age"] = None
+            else:
+                r["age"] = age
+        except (ValueError, TypeError):
+            r["age"] = None
+    return r
 
 
 def load_sources() -> list[dict]:
@@ -36,6 +60,8 @@ def fetch(source_config: dict, updated_after: str) -> list[dict]:
 
     log.info("Fetching from %s with updated_after=%s", url, updated_after)
 
+    rate_limit_ms = source_config.get("rate_limit_ms", 100)
+
     while True:
         data = None
         for attempt in range(max_retries):
@@ -50,20 +76,23 @@ def fetch(source_config: dict, updated_after: str) -> list[dict]:
                     headers={"accept": "application/json"},
                 )
                 resp.raise_for_status()
-                data = resp.json()
+                data = [sanitize_record(r) for r in resp.json()]
                 log.info("Fetched page %d: %d records", page, len(data))
                 break
             except Exception as e:
                 if attempt == max_retries - 1:
-                    log.error("All retries exhausted for page %d: %s", page, e)
-                    return records
+                    log.error("All retries exhausted for page %d: %s. %d records fetched before failure.",
+                              page, e, len(records))
+                    raise RuntimeError(
+                        f"Fetch failed for {source_config['id']} at page {page}: {e}"
+                    ) from e
                 log.warning("Retry %d for page %d: %s", attempt + 1, page, e)
                 time.sleep(2 ** attempt)
 
         if not data:
             break
         records.extend(data)
-        time.sleep(0.1)
+        time.sleep(rate_limit_ms / 1000.0)
 
         if len(data) < PAGE_LIMIT:
             break

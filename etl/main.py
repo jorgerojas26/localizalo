@@ -62,11 +62,14 @@ def run(source_id: str) -> None:
                     pid,
                     {
                         "full_name": record["full_name"],
+                        "given_name": record.get("given_name"),
+                        "family_name": record.get("family_name"),
                         "age": record.get("age"),
                         "last_known_location": record.get("last_known_location"),
                         "description": record.get("description"),
                         "photo_url": record.get("photo_url"),
                         "status": record.get("status", "unknown"),
+                        "author_name": record.get("author_name"),
                         "updated_at": now,
                     },
                 )
@@ -137,16 +140,25 @@ def run(source_id: str) -> None:
             log.exception("Failed to process record external_id=%s", record.get("external_id"))
             stats.errors += 1
 
-    db.update_etl_state_run(client, source_id, now, run_id)
-
     persons = db.get_all_persons(client)
     notes = db.get_all_notes(client)
     pfif_xml = export_pfif(persons, notes)
     stats.persons_exported = len(persons)
     stats.pfif_bytes = len(pfif_xml)
     log.info("Exported %d persons, %d notes, XML size %d bytes", stats.persons_exported, len(notes), stats.pfif_bytes)
-    db.upload_pfif(client, pfif_xml)
-    log.info("Upload completed for source %s", source_id)
+
+    try:
+        db.upload_pfif(client, pfif_xml, run_id)
+        log.info("Upload completed for source %s (run %s)", source_id, run_id)
+    except Exception:
+        log.exception("PFIF upload failed for source %s. etl_state NOT updated.", source_id)
+        stats.errors += 1
+        stats.log_summary()
+        stats.exit_if_errors()
+        return
+
+    # Only update etl_state AFTER successful export+upload
+    db.update_etl_state_run(client, source_id, now, run_id)
 
     stats.log_summary()
     stats.exit_if_errors()

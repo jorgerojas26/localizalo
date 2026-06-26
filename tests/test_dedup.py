@@ -31,3 +31,11 @@ def test_is_match_typo():
 
 def test_is_match_different_names():
     assert is_match("Maria Fernandez", "Juan Perez") is False
+
+
+def test_phonetic_hash_numeric_name():
+    h = phonetic_hash("12345")
+    assert isinstance(h, str)
+    assert len(h) == 16  # sha256 hex[:16]
+    # Two different numeric "names" should get different hashes
+    assert phonetic_hash("12345") != phonetic_hash("67890")

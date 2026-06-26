@@ -23,3 +23,15 @@ def test_normalize_location_synonym_maxuto():
 
 def test_normalize_location_partial_match():
     assert normalize_location("Edificio Costa Brava, Los Corales") == "edificio costa brava, los corales"
+
+
+def test_normalize_location_no_synonym_match():
+    assert normalize_location("Some Unknown Place") == "some unknown place"
+
+
+def test_normalize_location_none():
+    assert normalize_location(None) is None
+
+
+def test_normalize_location_empty():
+    assert normalize_location("") is None

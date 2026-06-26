@@ -1,4 +1,4 @@
-from etl.dedup import phonetic_hash, is_match
+from etl.dedup import phonetic_hash, is_match, is_full_match
 
 
 def test_phonetic_hash_returns_string():
@@ -83,3 +83,35 @@ def test_is_match_spanish_silent_h():
 
 def test_is_match_spanish_different_names():
     assert is_match("Carlos", "Carmen") is False
+
+
+def test_is_full_match_same_name_same_age():
+    assert is_full_match("Maria Fernandez", "Maria Fernandez", 25, 25) is True
+
+
+def test_is_full_match_same_name_age_diff_3():
+    assert is_full_match("Maria Fernandez", "Maria Fernandez", 25, 28) is False
+
+
+def test_is_full_match_same_name_age_diff_2():
+    assert is_full_match("Maria Fernandez", "Maria Fernandez", 25, 27) is True
+
+
+def test_is_full_match_same_name_one_age_none():
+    assert is_full_match("Maria Fernandez", "Maria Fernandez", 25, None) is True
+
+
+def test_is_full_match_typo_matching_contacto():
+    assert is_full_match("Maria Fernandez", "Maria Fernanez", None, None, "0412-123-4567", "04121234567") is True
+
+
+def test_is_full_match_same_name_different_contacto():
+    assert is_full_match("Maria Fernandez", "Maria Fernandez", None, None, "04121234567", "04129876543") is False
+
+
+def test_is_full_match_one_contacto_none():
+    assert is_full_match("Maria Fernandez", "Maria Fernanez", None, None, "04121234567", None) is True
+
+
+def test_is_full_match_different_names():
+    assert is_full_match("Maria Fernandez", "Juan Perez", 25, 30) is False

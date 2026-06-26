@@ -1,4 +1,5 @@
 import hashlib
+import re
 import unicodedata
 
 import Levenshtein
@@ -83,3 +84,33 @@ def is_match(name_a: str, name_b: str) -> bool:
     spa_a = _spanish_phonetic_key(name_a)
     spa_b = _spanish_phonetic_key(name_b)
     return spa_a and spa_b and Levenshtein.ratio(spa_a, spa_b) >= NAME_SIMILARITY_THRESHOLD
+
+
+def _normalize_contacto(contacto: str) -> str:
+    return re.sub(r'\D', '', _strip_accents(contacto.lower()))
+
+
+def is_full_match(
+    name_a: str,
+    name_b: str,
+    age_a: int | None = None,
+    age_b: int | None = None,
+    contacto_a: str | None = None,
+    contacto_b: str | None = None,
+) -> bool:
+    if not is_match(name_a, name_b):
+        return False
+    if age_a is not None and age_b is not None:
+        try:
+            if abs(int(age_a) - int(age_b)) > 2:
+                return False
+        except (TypeError, ValueError):
+            pass
+    if contacto_a and contacto_b:
+        norm_a = _normalize_contacto(contacto_a)
+        norm_b = _normalize_contacto(contacto_b)
+        if norm_a and norm_b:
+            if norm_a == norm_b:
+                return True
+            return False
+    return True

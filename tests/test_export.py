@@ -1,3 +1,5 @@
+import sys
+from unittest.mock import Mock, patch
 from xml.etree.ElementTree import fromstring
 
 from etl.export_pfif import export_pfif
@@ -100,3 +102,36 @@ def test_export_with_note():
     assert note is not None
     assert note.find(_ns("note_record_id")) is not None
     assert note.find(_ns("text")).text == "También reportado por Fuente B"
+
+
+def test_export_module_runs_end_to_end_with_mock_db():
+    from test_main import _mock_db
+
+    client, state = _mock_db()
+    orig_rpc = client.rpc
+
+    def reconciling_rpc(func_name, params):
+        if func_name == "reconcile_duplicate_persons":
+            result = Mock()
+            result.execute.return_value.data = []
+            return result
+        return orig_rpc(func_name, params)
+
+    client.rpc = reconciling_rpc
+
+    with patch("etl.export.db.get_client", return_value=client), \
+         patch("etl.export.db.get_all_persons_paged") as mock_persons_paged, \
+         patch("etl.export.db.get_all_notes_paged") as mock_notes_paged, \
+         patch("etl.export.db.upload_pfif") as mock_upload, \
+         patch("etl.export.db.count_persons", return_value=0), \
+         patch("etl.export.db.count_notes", return_value=0), \
+         patch("sys.argv", ["etl-export"]):
+        mock_persons_paged.return_value = [[]]
+        mock_notes_paged.return_value = [[]]
+
+        from etl.export import main
+        main()
+
+    mock_upload.assert_called_once()
+    xml_arg = mock_upload.call_args[0][1]
+    assert "<?xml" in xml_arg

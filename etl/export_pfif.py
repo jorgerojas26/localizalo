@@ -3,6 +3,8 @@ import io
 import re
 from datetime import datetime, timezone
 
+from etl import db
+
 PFIF_NS = "http://zesty.ca/pfif/1.5"
 
 
@@ -42,10 +44,10 @@ def _person_xml(p: dict) -> str:
 
 
 def _note_xml(n: dict) -> str:
-    # Fallback mirrors the sha256 calculation in main.py
-    note_id = n.get("note_record_id") or hashlib.sha256(
-        f"{n.get('person_record_id', '')}|{n.get('note_text', '')}|{n.get('source_date', '')}".encode()
-    ).hexdigest()[:16]
+    # Fallback mirrors the calculation in main.py / db.compute_note_record_id
+    note_id = n.get("note_record_id") or db.compute_note_record_id(
+        n.get("person_record_id", ""), n.get("note_text", ""), n.get("source_date")
+    )
     parts = ['  <pfif:note>']
     _add_xml(parts, 'pfif:note_record_id', note_id)
     _add_xml(parts, 'pfif:person_record_id', n.get('person_record_id'))

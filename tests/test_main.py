@@ -173,6 +173,38 @@ def _mock_db():
                 state["source_records"].append(source_record)
 
             result.execute.return_value.data = [params["_person_record_id"]]
+        elif func_name == "atomic_merge_note":
+            source_record = {
+                "person_record_id": params["_person_record_id"],
+                "source_id": params["_source_id"],
+                "external_id": params["_external_id"],
+                "source_date": params["_source_date"],
+                "contacto": params["_contacto"],
+                "localizado_por": params["_localizado_por"],
+                "localizado_contacto": params["_localizado_contacto"],
+                "localizado_relacion": params["_localizado_relacion"],
+                "localizado_nota": params["_localizado_nota"],
+            }
+            existing_sr = None
+            for sr in state["source_records"]:
+                if sr.get("source_id") == source_record["source_id"] and sr.get("external_id") == source_record["external_id"]:
+                    existing_sr = sr
+                    break
+            if existing_sr:
+                existing_sr.update(source_record)
+            else:
+                state["source_records"].append(source_record)
+
+            note = {
+                "person_record_id": params["_person_record_id"],
+                "note_text": params["_note_text"],
+                "author_name": params["_author_name"],
+                "status": params["_status"],
+                "source_date": params["_source_date"],
+                "created_at": params["_created_at"],
+                "note_record_id": params["_note_record_id"],
+            }
+            state["notes"].append(note)
         return result
 
     client = Mock()

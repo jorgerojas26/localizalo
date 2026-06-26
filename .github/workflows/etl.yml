@@ -11,14 +11,33 @@ on:
         default: ''
 
 jobs:
+  matrix:
+    runs-on: ubuntu-latest
+    outputs:
+      sources: ${{ steps.gen.outputs.sources }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: pip install PyYAML
+      - id: gen
+        run: |
+          SOURCES=$(python -c "
+          import yaml, json
+          with open('sources.yml') as f:
+              sources = yaml.safe_load(f)['sources']
+          print(json.dumps([s['id'] for s in sources]))
+          ")
+          echo "sources=$SOURCES" >> $GITHUB_OUTPUT
+
   etl:
-    # Add new sources to both this matrix and sources.yml
+    needs: matrix
     strategy:
       fail-fast: false
       matrix:
-        source: [desaparecidos-terremoto-api]
+        source: ${{ fromJson(needs.matrix.outputs.sources) }}
     runs-on: ubuntu-latest
-    # When source input is provided, only run that source; empty = run all
     if: ${{ github.event.inputs.source == '' || github.event.inputs.source == matrix.source }}
     concurrency:
       group: etl-${{ matrix.source }}

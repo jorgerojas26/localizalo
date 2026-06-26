@@ -111,29 +111,24 @@ def run(source_id: str) -> None:
                     match = db.find_person_by_phonetic_match(
                         client, record["full_name"], loc_norm
                     )
+                # Merge is atomic via RPC — note + source_record inserted in single transaction.
+                # ON CONFLICT (note_record_id) DO NOTHING handles cross-source races safely.
                 if match:
                     note_text = _build_note_text(record, source_config)
-                    db.add_note(
+                    db.atomic_merge_note(
                         client,
                         {
-                            "id": str(uuid.uuid4()),
                             "person_record_id": match["person_record_id"],
+                            "note_record_id": db.compute_note_record_id(
+                                match["person_record_id"], note_text, record.get("source_date", "")
+                            ),
                             "note_text": note_text,
-                            "note_record_id": hashlib.sha256(
-                                f"{match['person_record_id']}|{note_text}|{record.get('source_date', '')}".encode()
-                            ).hexdigest()[:16],
                             "author_name": record.get("author_name"),
                             "status": record.get("status"),
                             "source_date": record.get("source_date"),
                             "created_at": now,
                         },
-                    )
-                    stats.merged += 1
-                    stats.notes_added += 1
-                    db.upsert_source_record(
-                        client,
                         {
-                            "person_record_id": match["person_record_id"],
                             "source_id": source_id,
                             "external_id": record["external_id"],
                             "source_date": record.get("source_date"),
@@ -144,6 +139,8 @@ def run(source_id: str) -> None:
                             "localizado_nota": record.get("localizado_nota"),
                         },
                     )
+                    stats.merged += 1
+                    stats.notes_added += 1
                     stats.source_records_upserted += 1
                 else:
                     db.atomic_upsert_person(

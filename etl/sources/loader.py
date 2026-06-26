@@ -123,10 +123,20 @@ def sanitize_record(record: dict) -> dict | None:
     return r
 
 
+_REQUIRED_SOURCE_KEYS = {"id", "name", "namespace", "base_url"}
+
+
 @functools.lru_cache(maxsize=1)
 def load_sources() -> list[dict]:
     with open(_SOURCES_FILE) as f:
-        return yaml.safe_load(f)["sources"]
+        sources = yaml.safe_load(f)["sources"]
+    for s in sources:
+        missing = _REQUIRED_SOURCE_KEYS - s.keys()
+        if missing:
+            raise ValueError(
+                f"Source '{s.get('id', 'unknown')}' missing required keys: {missing}"
+            )
+    return sources
 
 
 def get_source(source_id: str) -> dict:

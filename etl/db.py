@@ -1,6 +1,9 @@
 import functools
+import hashlib
 import os
 import time
+
+import httpx
 
 from etl.dedup import is_match
 
@@ -23,6 +26,21 @@ def _tbl(client, name: str):
     return client.schema(_SCHEMA).table(name)
 
 
+def _is_transient(e: Exception) -> bool:
+    """Return True if e is a transient network/HTTP error worth retrying."""
+    if isinstance(e, (
+        httpx.TimeoutException,
+        httpx.ConnectError,
+        httpx.RemoteProtocolError,
+        httpx.ReadError,
+        httpx.WriteError,
+    )):
+        return True
+    if hasattr(e, 'code') and isinstance(e.code, int) and 500 <= e.code < 600:
+        return True
+    return False
+
+
 def _retry(max_attempts=3, base_delay=1.0):
     """Retry a Supabase operation on transient errors."""
     def decorator(func):
@@ -33,12 +51,20 @@ def _retry(max_attempts=3, base_delay=1.0):
                 try:
                     return func(*args, **kwargs)
                 except Exception as e:
+                    if not _is_transient(e):
+                        raise
                     last_error = e
                     if attempt < max_attempts - 1:
                         time.sleep(base_delay * (2 ** attempt))
             raise last_error
         return wrapper
     return decorator
+
+
+def compute_note_record_id(person_record_id: str, note_text: str, source_date: str | None) -> str:
+    return hashlib.sha256(
+        f"{person_record_id}|{note_text}|{source_date or ''}".encode()
+    ).hexdigest()[:16]
 
 
 @_retry()
@@ -163,6 +189,27 @@ def update_person(client, person_record_id: str, updates: dict) -> None:
 @_retry()
 def add_note(client, note: dict) -> None:
     _tbl(client, "notes").upsert(note, on_conflict=["note_record_id"]).execute()
+
+
+@_retry()
+def atomic_merge_note(client, note: dict, source_record: dict) -> None:
+    client.rpc("atomic_merge_note", {
+        "_person_record_id": note["person_record_id"],
+        "_note_record_id": note["note_record_id"],
+        "_note_text": note["note_text"],
+        "_author_name": note.get("author_name"),
+        "_status": note.get("status"),
+        "_source_date": note.get("source_date"),
+        "_created_at": note.get("created_at"),
+        "_source_id": source_record["source_id"],
+        "_external_id": source_record["external_id"],
+        "_source_date": source_record.get("source_date"),
+        "_contacto": source_record.get("contacto"),
+        "_localizado_por": source_record.get("localizado_por"),
+        "_localizado_contacto": source_record.get("localizado_contacto"),
+        "_localizado_relacion": source_record.get("localizado_relacion"),
+        "_localizado_nota": source_record.get("localizado_nota"),
+    }).execute()
 
 
 @_retry()

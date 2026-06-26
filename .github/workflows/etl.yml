@@ -20,6 +20,7 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
+          cache: pip
       - run: pip install PyYAML
       - id: gen
         run: |
@@ -31,25 +32,57 @@ jobs:
           ")
           echo "sources=$SOURCES" >> $GITHUB_OUTPUT
 
+  tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+      - run: pip install -r requirements.txt
+      - run: python -m pytest tests/ -v
+
   etl:
-    needs: matrix
+    needs: [matrix, tests]
     strategy:
       fail-fast: false
       matrix:
         source: ${{ fromJson(needs.matrix.outputs.sources) }}
     runs-on: ubuntu-latest
     if: ${{ github.event.inputs.source == '' || github.event.inputs.source == matrix.source }}
+    # cancel-in-progress: false so runs queue rather than abort on */10 cron ticks
     concurrency:
       group: etl-${{ matrix.source }}
-      cancel-in-progress: true
+      cancel-in-progress: false
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
+          cache: pip
       - run: pip install -r requirements.txt
-      - run: python -m pytest tests/ -v
       - run: python -m etl.main --source ${{ matrix.source }}
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+          SENTRY_DSN: ${{ secrets.SENTRY_DSN }}
+
+  consolidator:
+    needs: [matrix, tests, etl]
+    if: always()
+    runs-on: ubuntu-latest
+    concurrency:
+      group: etl-consolidator
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+      - run: pip install -r requirements.txt
+      - run: python -m etl.export
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}

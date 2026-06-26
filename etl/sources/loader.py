@@ -113,6 +113,7 @@ def sanitize_record(record: dict) -> dict | None:
     if r.get("age") is not None:
         try:
             age = int(r["age"])
+            # Age 0 is treated as valid (newborn); consider treating as unknown after data review.
             if not (0 <= age <= 150):
                 r["age"] = None
             else:
@@ -140,7 +141,6 @@ def list_source_ids() -> list[str]:
 
 
 def fetch(source_config: dict, updated_after: str) -> list[dict]:
-    client = httpx.Client(timeout=30.0)
     records = []
     page = 1
     url = source_config["base_url"].rstrip("/") + "/pfif"
@@ -150,52 +150,53 @@ def fetch(source_config: dict, updated_after: str) -> list[dict]:
 
     rate_limit_ms = source_config.get("rate_limit_ms", 100)
 
-    while True:
-        data = None
-        for attempt in range(max_retries):
-            try:
-                resp = client.get(
-                    url,
-                    params={
-                        "updated_after": updated_after,
-                        "page": page,
-                        "limit": PAGE_LIMIT,
-                    },
-                    headers={"accept": "application/json, application/xml"},
-                )
-                resp.raise_for_status()
-                ctype = resp.headers.get("content-type", "").lower()
-                if "xml" in ctype:
-                    root = xml_from_string(resp.text)
-                    ns = f"{{{PFIF_NS}}}"
-                    persons = root.findall(f".//{ns}person")
-                    if not persons:
-                        persons = root.findall(".//person")
-                    raw_records = [_parse_pfif_person(p) for p in persons]
-                else:
-                    raw_records = resp.json()
-                data = [sanitize_record(r) for r in raw_records]
-                data = [r for r in data if r is not None]
-                log.info("Fetched page %d: %d records", page, len(data))
+    with httpx.Client(timeout=30.0) as client:
+        while True:
+            data = None
+            for attempt in range(max_retries):
+                try:
+                    resp = client.get(
+                        url,
+                        params={
+                            "updated_after": updated_after,
+                            "page": page,
+                            "limit": PAGE_LIMIT,
+                        },
+                        headers={"accept": "application/json, application/xml"},
+                    )
+                    resp.raise_for_status()
+                    ctype = resp.headers.get("content-type", "").lower()
+                    if "xml" in ctype:
+                        root = xml_from_string(resp.text)
+                        ns = f"{{{PFIF_NS}}}"
+                        persons = root.findall(f".//{ns}person")
+                        if not persons:
+                            persons = root.findall(".//person")
+                        raw_records = [_parse_pfif_person(p) for p in persons]
+                    else:
+                        raw_records = resp.json()
+                    data = [sanitize_record(r) for r in raw_records]
+                    data = [r for r in data if r is not None]
+                    log.info("Fetched page %d: %d records", page, len(data))
+                    break
+                except Exception as e:
+                    if attempt == max_retries - 1:
+                        log.error("All retries exhausted for page %d: %s. %d records fetched before failure.",
+                                  page, e, len(records))
+                        raise RuntimeError(
+                            f"Fetch failed for {source_config['id']} at page {page}: {e}"
+                        ) from e
+                    log.warning("Retry %d for page %d: %s", attempt + 1, page, e)
+                    time.sleep(2 ** attempt)
+
+            if not data:
                 break
-            except Exception as e:
-                if attempt == max_retries - 1:
-                    log.error("All retries exhausted for page %d: %s. %d records fetched before failure.",
-                              page, e, len(records))
-                    raise RuntimeError(
-                        f"Fetch failed for {source_config['id']} at page {page}: {e}"
-                    ) from e
-                log.warning("Retry %d for page %d: %s", attempt + 1, page, e)
-                time.sleep(2 ** attempt)
+            records.extend(data)
+            time.sleep(rate_limit_ms / 1000.0)
 
-        if not data:
-            break
-        records.extend(data)
-        time.sleep(rate_limit_ms / 1000.0)
-
-        if len(data) < PAGE_LIMIT:
-            break
-        page += 1
+            if len(data) < PAGE_LIMIT:
+                break
+            page += 1
 
     log.info("Fetch complete: %d total records", len(records))
     return records

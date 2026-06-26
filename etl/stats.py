@@ -9,6 +9,7 @@ log = logging.getLogger(__name__)
 @dataclass
 class RunStats:
     source_id: str
+    run_id: str | None = None
     total_fetched: int = 0
     created: int = 0
     updated: int = 0

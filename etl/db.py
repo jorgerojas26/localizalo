@@ -1,4 +1,6 @@
+import functools
 import os
+import time
 
 from etl.dedup import is_match
 
@@ -8,8 +10,12 @@ _SCHEMA = "localize"
 def get_client():
     from supabase import create_client
 
-    url = os.environ["SUPABASE_URL"]
-    key = os.environ["SUPABASE_SERVICE_KEY"]
+    url = os.environ.get("SUPABASE_URL")
+    key = os.environ.get("SUPABASE_SERVICE_KEY")
+    if not url or not key:
+        raise RuntimeError(
+            "SUPABASE_URL and SUPABASE_SERVICE_KEY must be set in environment"
+        )
     return create_client(url, key)
 
 
@@ -17,6 +23,25 @@ def _tbl(client, name: str):
     return client.schema(_SCHEMA).table(name)
 
 
+def _retry(max_attempts=3, base_delay=1.0):
+    """Retry a Supabase operation on transient errors."""
+    def decorator(func):
+        @functools.wraps(func)
+        def wrapper(*args, **kwargs):
+            last_error = None
+            for attempt in range(max_attempts):
+                try:
+                    return func(*args, **kwargs)
+                except Exception as e:
+                    last_error = e
+                    if attempt < max_attempts - 1:
+                        time.sleep(base_delay * (2 ** attempt))
+            raise last_error
+        return wrapper
+    return decorator
+
+
+@_retry()
 def get_etl_state(client, source_id: str) -> str | None:
     result = (
         _tbl(client, "etl_state")
@@ -29,12 +54,14 @@ def get_etl_state(client, source_id: str) -> str | None:
     return None
 
 
+@_retry()
 def upsert_source_record(client, record: dict) -> None:
     _tbl(client, "source_records").upsert(
         record, on_conflict=["source_id", "external_id"]
     ).execute()
 
 
+@_retry()
 def find_person_by_id(client, person_record_id: str) -> dict | None:
     result = (
         _tbl(client, "persons")
@@ -45,6 +72,7 @@ def find_person_by_id(client, person_record_id: str) -> dict | None:
     return result.data[0] if result.data else None
 
 
+@_retry()
 def find_person_by_phonetic_match(
     client, name: str, location: str
 ) -> dict | None:
@@ -71,6 +99,7 @@ def find_person_by_phonetic_match(
         _tbl(client, "persons")
         .select("*")
         .eq("location_normalized", location)
+        .limit(500)
         .execute()
     )
     for candidate in result.data or []:
@@ -81,10 +110,12 @@ def find_person_by_phonetic_match(
     return None
 
 
+@_retry()
 def create_person(client, person: dict) -> None:
     _tbl(client, "persons").insert(person).execute()
 
 
+@_retry()
 def atomic_upsert_person(client, person: dict, source_record: dict) -> str:
     result = client.rpc("atomic_upsert_person", {
         "_person_record_id": person["person_record_id"],
@@ -113,23 +144,19 @@ def atomic_upsert_person(client, person: dict, source_record: dict) -> str:
     return result.data[0] if result.data else None
 
 
+@_retry()
 def update_person(client, person_record_id: str, updates: dict) -> None:
     _tbl(client, "persons").update(updates).eq(
         "person_record_id", person_record_id
     ).execute()
 
 
+@_retry()
 def add_note(client, note: dict) -> None:
     _tbl(client, "notes").upsert(note, on_conflict=["note_record_id"]).execute()
 
 
-def update_etl_state(client, source_id: str, last_run: str) -> None:
-    _tbl(client, "etl_state").upsert(
-        {"source_id": source_id, "last_run": last_run},
-        on_conflict=["source_id"],
-    ).execute()
-
-
+@_retry()
 def update_etl_state_run(client, source_id: str, last_run: str, run_id: str) -> None:
     _tbl(client, "etl_state").upsert(
         {"source_id": source_id, "last_run": last_run, "run_id": run_id},
@@ -137,6 +164,7 @@ def update_etl_state_run(client, source_id: str, last_run: str, run_id: str) -> 
     ).execute()
 
 
+@_retry()
 def get_all_persons_paged(client):
     start = 0
     page_size = 1000
@@ -144,6 +172,7 @@ def get_all_persons_paged(client):
         result = (
             _tbl(client, "persons")
             .select("*")
+            .order("person_record_id")
             .range(start, start + page_size - 1)
             .execute()
         )
@@ -155,6 +184,7 @@ def get_all_persons_paged(client):
         start += page_size
 
 
+@_retry()
 def get_all_notes_paged(client):
     start = 0
     page_size = 1000
@@ -162,6 +192,7 @@ def get_all_notes_paged(client):
         result = (
             _tbl(client, "notes")
             .select("*")
+            .order("note_record_id")
             .range(start, start + page_size - 1)
             .execute()
         )
@@ -187,16 +218,19 @@ def get_all_notes(client) -> list[dict]:
     return records
 
 
+@_retry()
 def count_persons(client) -> int:
     result = _tbl(client, "persons").select("*", count="exact").limit(1).execute()
     return result.count
 
 
+@_retry()
 def count_notes(client) -> int:
     result = _tbl(client, "notes").select("*", count="exact").limit(1).execute()
     return result.count
 
 
+@_retry()
 def upload_pfif(client, xml_content: str, run_id: str) -> None:
     content = xml_content.encode()
     bucket = client.storage.from_("pfif")

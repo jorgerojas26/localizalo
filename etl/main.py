@@ -3,7 +3,13 @@ import hashlib
 import os
 import uuid
 import logging
+import sys
 from datetime import datetime, timezone
+
+try:
+    import sentry_sdk
+except ImportError:
+    sentry_sdk = None  # type: ignore[assignment]
 
 from etl import db
 from etl.dedup import phonetic_hash
@@ -67,10 +73,10 @@ def run(source_id: str) -> None:
             existing = db.find_person_by_id(client, pid)
 
             if existing:
-                db.update_person(
+                db.atomic_upsert_person(
                     client,
-                    pid,
                     {
+                        "person_record_id": pid,
                         "full_name": record["full_name"],
                         "given_name": record.get("given_name"),
                         "family_name": record.get("family_name"),
@@ -80,12 +86,11 @@ def run(source_id: str) -> None:
                         "photo_url": record.get("photo_url"),
                         "status": record.get("status", "unknown"),
                         "author_name": record.get("author_name"),
+                        "phonetic_hash": ph,
+                        "location_normalized": loc_norm,
+                        "created_at": now,
                         "updated_at": now,
                     },
-                )
-                stats.updated += 1
-                db.upsert_source_record(
-                    client,
                     {
                         "person_record_id": pid,
                         "source_id": source_id,
@@ -98,6 +103,7 @@ def run(source_id: str) -> None:
                         "localizado_nota": record.get("localizado_nota"),
                     },
                 )
+                stats.updated += 1
                 stats.source_records_upserted += 1
             else:
                 match = None
@@ -174,12 +180,16 @@ def run(source_id: str) -> None:
                     stats.source_records_upserted += 1
         except Exception:
             log.exception("Failed to process record external_id=%s", record.get("external_id"))
-            try:
-                import sentry_sdk
+            if sentry_sdk:
                 sentry_sdk.capture_exception()
-            except Exception:
-                pass
             stats.errors += 1
+
+    if stats.created + stats.updated + stats.merged + stats.notes_added == 0:
+        log.info("No changes detected. Skipping export and upload.")
+        db.update_etl_state_run(client, source_id, now, run_id)
+        stats.run_id = run_id
+        stats.log_summary()
+        return
 
     pfif_xml = export_pfif(
         db.get_all_persons_paged(client),
@@ -195,13 +205,13 @@ def run(source_id: str) -> None:
     except Exception:
         log.exception("PFIF upload failed for source %s. etl_state NOT updated.", source_id)
         stats.errors += 1
+        stats.run_id = run_id
         stats.log_summary()
-        stats.exit_if_errors()
-        return
+        sys.exit(1)
 
     # Only update etl_state AFTER successful export+upload
     db.update_etl_state_run(client, source_id, now, run_id)
-
+    stats.run_id = run_id
     stats.log_summary()
     stats.exit_if_errors()
 
@@ -211,7 +221,6 @@ def main() -> None:
 
     sentry_dsn = os.environ.get("SENTRY_DSN")
     if sentry_dsn:
-        import sentry_sdk
         sentry_sdk.init(
             dsn=sentry_dsn,
             traces_sample_rate=0.0,

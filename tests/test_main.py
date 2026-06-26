@@ -32,11 +32,14 @@ def _mock_db():
                     filtered = [it for it in items if it.get(k) == v]
                 q2.execute.return_value.data = filtered
                 q2.eq = eq
+                q2.limit = Mock(return_value=q2)
+                q2.order = Mock(return_value=q2)
                 return q2
             
             q.eq = eq
             q.range = Mock(return_value=q)
             q.limit = Mock(return_value=q)
+            q.order = Mock(return_value=q)
             return q
         
         tbl.select = select

@@ -6,7 +6,7 @@ from datetime import datetime, timezone
 PFIF_NS = "http://zesty.ca/pfif/1.5"
 
 
-_CONTROL_CHARS = re.compile('[\x00-\x08\x0B\x0C\x0E-\x1F]')
+_CONTROL_CHARS = re.compile('[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]')
 
 
 def _escape(s: str) -> str:
@@ -42,6 +42,7 @@ def _person_xml(p: dict) -> str:
 
 
 def _note_xml(n: dict) -> str:
+    # Fallback mirrors the sha256 calculation in main.py
     note_id = n.get("note_record_id") or hashlib.sha256(
         f"{n.get('person_record_id', '')}|{n.get('note_text', '')}|{n.get('source_date', '')}".encode()
     ).hexdigest()[:16]

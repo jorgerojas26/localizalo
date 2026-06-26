@@ -1,3 +1,4 @@
+import functools
 import logging
 import re
 from datetime import datetime, timezone
@@ -96,6 +97,11 @@ def sanitize_record(record: dict) -> dict | None:
     sd = r.get("source_date")
     if sd is not None and isinstance(sd, int):
         r["source_date"] = datetime.fromtimestamp(sd / 1000, tz=timezone.utc).isoformat()
+    if sd is not None and isinstance(sd, str):
+        try:
+            datetime.fromisoformat(sd)
+        except (ValueError, TypeError):
+            r["source_date"] = None
 
     if r.get("photo_url") and not _URL_RE.match(str(r["photo_url"])):
         r["photo_url"] = None
@@ -116,6 +122,7 @@ def sanitize_record(record: dict) -> dict | None:
     return r
 
 
+@functools.lru_cache(maxsize=1)
 def load_sources() -> list[dict]:
     with open(_SOURCES_FILE) as f:
         return yaml.safe_load(f)["sources"]

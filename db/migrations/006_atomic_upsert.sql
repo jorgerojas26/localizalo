@@ -24,6 +24,7 @@ CREATE OR REPLACE FUNCTION localize.atomic_upsert_person(
 ) RETURNS TEXT
 LANGUAGE plpgsql
 SECURITY DEFINER
+SET search_path = ''
 AS $$
 BEGIN
     INSERT INTO localize.persons (

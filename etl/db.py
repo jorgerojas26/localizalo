@@ -50,6 +50,23 @@ def find_person_by_phonetic_match(
 ) -> dict | None:
     if location is None:
         return None
+    from etl.dedup import phonetic_hash
+    primary_hash = phonetic_hash(name)
+
+    # Fast path: exact phonetic_hash + same location = very likely match
+    result = (
+        _tbl(client, "persons")
+        .select("*")
+        .eq("location_normalized", location)
+        .eq("phonetic_hash", primary_hash)
+        .execute()
+    )
+    for candidate in result.data or []:
+        if is_match(name, candidate["full_name"]):
+            return candidate
+
+    # Slow path: different phonetic_hash but phonetically similar
+    # Still need location filter to limit scan
     result = (
         _tbl(client, "persons")
         .select("*")
@@ -57,6 +74,8 @@ def find_person_by_phonetic_match(
         .execute()
     )
     for candidate in result.data or []:
+        if candidate.get("phonetic_hash") == primary_hash:
+            continue  # already checked above
         if is_match(name, candidate["full_name"]):
             return candidate
     return None

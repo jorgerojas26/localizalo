@@ -59,6 +59,22 @@ def test_export_person_with_all_fields():
     assert p.find(_ns("photo_url")).text == "https://example.com/foto.jpg"
 
 
+def test_export_escapes_control_characters():
+    """Control characters must be stripped to produce valid XML 1.0."""
+    persons = [
+        {
+            "person_record_id": "abc123",
+            "full_name": "Maria Fernandez",
+            "description": "Se\x00encuentra\x1Fbien",
+        }
+    ]
+    xml = export_pfif([persons], [])
+    assert "\x00" not in xml
+    assert "\x1F" not in xml
+    assert "encuentra" in xml
+    assert "bien" in xml
+
+
 def test_export_with_note():
     persons = [
         {

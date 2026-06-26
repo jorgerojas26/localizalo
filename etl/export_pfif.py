@@ -1,15 +1,21 @@
 import hashlib
 import io
+import re
 from datetime import datetime, timezone
 
 PFIF_NS = "http://zesty.ca/pfif/1.5"
 
 
+_CONTROL_CHARS = re.compile('[\x00-\x08\x0B\x0C\x0E-\x1F]')
+
+
 def _escape(s: str) -> str:
-    s = s.replace("&", "&amp;")
-    s = s.replace("<", "&lt;")
-    s = s.replace(">", "&gt;")
-    s = s.replace('"', "&quot;")
+    s = _CONTROL_CHARS.sub('', s)
+    s = s.replace('&', '&amp;')
+    s = s.replace('<', '&lt;')
+    s = s.replace('>', '&gt;')
+    s = s.replace('"', '&quot;')
+    s = s.replace("'", '&apos;')
     return s
 
 

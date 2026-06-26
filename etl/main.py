@@ -34,11 +34,22 @@ def _build_note_text(record: dict, source_config: dict) -> str:
 
 
 def run(source_id: str) -> None:
+    """Run ETL pipeline for a single source.
+
+    Idempotency guarantees:
+    - person_record_id is deterministic (sha256(phonetic_hash|normalized_location)[:16])
+    - atomic_upsert_person uses ON CONFLICT DO UPDATE on person_record_id
+    - source_records use ON CONFLICT (source_id, external_id)
+    - notes use ON CONFLICT (note_record_id) where note_record_id is deterministic
+    - etl_state is only updated after successful export+upload
+    Safe to re-run or run concurrently across different sources.
+    """
     client = db.get_client()
     source_config = get_source(source_id)
     stats = RunStats(source_id=source_id)
 
-    last_run = db.get_etl_state(client, source_id) or "1970-01-01T00:00:00Z"
+    _default_after = os.environ.get("ETL_DEFAULT_UPDATED_AFTER", "1970-01-01T00:00:00Z")
+    last_run = db.get_etl_state(client, source_id) or _default_after
     records = source_fetch(source_config, updated_after=last_run)
 
     stats.total_fetched = len(records)

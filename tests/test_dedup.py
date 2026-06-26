@@ -33,6 +33,22 @@ def test_is_match_different_names():
     assert is_match("Maria Fernandez", "Juan Perez") is False
 
 
+def test_phonetic_hash_spanish_fallback():
+    """Names that produce no DM keys fall back to Spanish phonetic key."""
+    h = phonetic_hash("W")
+    assert isinstance(h, str)
+    assert len(h) == 16  # SHA256 hex[:16] length
+    # Verify it went through Spanish key path (not raw SHA256)
+    import hashlib
+    assert h == hashlib.sha256(b"spa:w").hexdigest()[:16]
+
+
+def test_phonetic_hash_purely_numeric():
+    h = phonetic_hash("12345")
+    assert isinstance(h, str)
+    assert len(h) == 16
+
+
 def test_phonetic_hash_numeric_name():
     h = phonetic_hash("12345")
     assert isinstance(h, str)

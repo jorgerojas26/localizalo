@@ -18,6 +18,10 @@ def phonetic_hash(name: str) -> str:
     primary, alternate = phonetics.dmetaphone(cleaned)
     if primary or alternate:
         return primary or alternate
+    # Fallback: try Spanish phonetic key before SHA256
+    spa_key = _spanish_phonetic_key(name)
+    if spa_key:
+        return hashlib.sha256(("spa:" + spa_key).encode()).hexdigest()[:16]
     return hashlib.sha256(name.encode()).hexdigest()[:16]
 
 

@@ -37,19 +37,11 @@ jobs:
           ")
           echo "sources=$SOURCES" >> $GITHUB_OUTPUT
 
-  tests:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with:
-          python-version: '3.12'
-          cache: pip
-      - run: pip install -r requirements.txt
-      - run: python -m pytest tests/ -v
+  # Integration tests require supabase start (local Supabase). Run locally:
+  #   python -m pytest tests/ -v
 
   etl:
-    needs: [matrix, tests]
+    needs: [matrix]
     strategy:
       fail-fast: false
       matrix:
@@ -73,7 +65,7 @@ jobs:
           SENTRY_DSN: ${{ secrets.SENTRY_DSN }}
 
   consolidator:
-    needs: [matrix, tests, etl]
+    needs: [matrix, etl]
     if: ${{ success() || failure() }}
     runs-on: ubuntu-latest
     concurrency:

@@ -56,7 +56,7 @@ def _build_person(record: dict, pid: str, ph: str, loc_norm: str | None, now: st
         "last_known_location": record.get("last_known_location"),
         "description": record.get("description"),
         "photo_url": record.get("photo_url"),
-        "status": record.get("status", "unknown"),
+        "status": record.get("status") or "unknown",
         "author_name": record.get("author_name"),
         "phonetic_hash": ph,
         "location_normalized": loc_norm,

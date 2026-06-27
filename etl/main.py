@@ -93,6 +93,7 @@ def run(source_id: str) -> None:
     """
     client = db.get_client()
     source_config = get_source(source_id)
+    db.ensure_source_exists(client, source_id, source_config["name"], source_config["namespace"])
     stats = RunStats(source_id=source_id)
 
     _default_after = os.environ.get("ETL_DEFAULT_UPDATED_AFTER", "1970-01-01T00:00:00Z")

@@ -68,6 +68,14 @@ def compute_note_record_id(person_record_id: str, source_id: str, external_id: s
 
 
 @_retry()
+def ensure_source_exists(client, source_id: str, name: str, namespace: str) -> None:
+    _tbl(client, "sources").upsert(
+        {"id": source_id, "name": name, "namespace": namespace},
+        on_conflict=["id"],
+    ).execute()
+
+
+@_retry()
 def get_etl_state(client, source_id: str) -> str | None:
     result = (
         _tbl(client, "etl_state")

@@ -3,5 +3,5 @@ phonetics==1.0.5
 pytest==9.1.1
 python-Levenshtein==0.27.3
 PyYAML==6.0.3
-sentry-sdk==2.45.0
+sentry-sdk==2.63.0
 supabase==2.31.0

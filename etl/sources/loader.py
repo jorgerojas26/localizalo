@@ -29,7 +29,7 @@ def _parse_pfif_person(el) -> dict:
     def _text(tag):
         e = el.find(f"{ns}{tag}")
         if e is None:
-            e = el.find(tag)
+            e = el.find(f"{{*}}{tag}")
         if e is not None and e.text:
             return e.text.strip()
         return None
@@ -85,7 +85,7 @@ def _parse_pfif_person(el) -> dict:
     ):
         e = el.find(f"{ns}{tag}")
         if e is None:
-            e = el.find(tag)
+            e = el.find(f"{{*}}{tag}")
         if e is not None and e.text:
             record[key] = e.text.strip()
 
@@ -190,10 +190,10 @@ def fetch(source_config: dict, updated_after: str):
                             ns = f"{{{PFIF_NS}}}"
                             persons = root.findall(f".//{ns}person")
                             if not persons:
-                                persons = root.findall(".//person")
+                                persons = root.findall(".//{*}person")
                             raw_records = [_parse_pfif_person(p) for p in persons]
                         except Exception:
-                            log.debug("XML parse failed for Content-Type %s, trying JSON", ctype)
+                            log.warning("XML parse failed for Content-Type %s, trying JSON", ctype)
                     if raw_records is None or not raw_records:
                         # Either Content-Type was not XML, or XML parsing failed.
                         # Fall back to JSON parsing.

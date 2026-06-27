@@ -45,7 +45,6 @@ BEGIN
         FROM localize.persons p1
         JOIN localize.persons p2 ON p1.person_record_id < p2.person_record_id
             AND p1.location_normalized IS NOT DISTINCT FROM p2.location_normalized
-            AND p1.full_name % p2.full_name
             AND similarity(p1.full_name, p2.full_name) > 0.5
             AND NOT EXISTS (SELECT 1 FROM touched_pids WHERE pid = p1.person_record_id)
             AND NOT EXISTS (SELECT 1 FROM touched_pids WHERE pid = p2.person_record_id)
@@ -94,3 +93,39 @@ GRANT EXECUTE ON FUNCTION localize._reconcile_delete_person(TEXT) TO service_rol
 REVOKE ALL ON FUNCTION localize.reconcile_duplicate_persons(INTEGER) FROM PUBLIC;
 REVOKE EXECUTE ON FUNCTION localize.reconcile_duplicate_persons(INTEGER) FROM authenticated;
 GRANT EXECUTE ON FUNCTION localize.reconcile_duplicate_persons(INTEGER) TO service_role;
+
+-- ------------------------------------------------------------------
+-- Also fix trigram_match_persons: replace % operator with similarity()
+-- because the % operator from pg_trgm requires a search_path that
+-- PostgREST may not include at runtime.
+-- ------------------------------------------------------------------
+CREATE OR REPLACE FUNCTION localize.trigram_match_persons(
+    _name TEXT,
+    _location TEXT DEFAULT NULL,
+    _limit INTEGER DEFAULT 50
+) RETURNS SETOF localize.persons
+LANGUAGE plpgsql STABLE
+AS $$
+BEGIN
+    IF _location IS NOT NULL THEN
+        RETURN QUERY
+        SELECT p.*
+        FROM localize.persons p
+        WHERE p.location_normalized = _location
+          AND similarity(p.full_name, _name) > 0.3
+        ORDER BY similarity(p.full_name, _name) DESC
+        LIMIT _limit;
+    ELSE
+        RETURN QUERY
+        SELECT p.*
+        FROM localize.persons p
+        WHERE similarity(p.full_name, _name) > 0.3
+        ORDER BY similarity(p.full_name, _name) DESC
+        LIMIT _limit;
+    END IF;
+END;
+$$;
+
+REVOKE ALL ON FUNCTION localize.trigram_match_persons(TEXT, TEXT, INTEGER) FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION localize.trigram_match_persons(TEXT, TEXT, INTEGER) FROM authenticated;
+GRANT EXECUTE ON FUNCTION localize.trigram_match_persons(TEXT, TEXT, INTEGER) TO service_role;

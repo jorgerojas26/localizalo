@@ -1,11 +1,4 @@
 sources:
-  # rate_limit_ms: optional, ms between paginated requests (default: 100)
-  - id: desaparecidos-terremoto-api
-    name: Desaparecidos Terremoto API
-    namespace: desaparecidosterremotovenezuela.com
-    base_url: https://desaparecidos-terremoto-api.theempire.tech
-    rate_limit_ms: 100
-
   - id: ayuda-venezuela-backend
     name: Ayuda Venezuela
     namespace: ayuda-venezuela-backend-291864207498.us-central1.run.app

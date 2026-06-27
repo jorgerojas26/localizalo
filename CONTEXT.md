@@ -13,7 +13,7 @@ An external API from which raw records are fetched (e.g. desaparecidos-terremoto
 _Avoid_: Data source, provider, origin
 
 **Source PFIF Contract**:
-Each Source exposes `GET /pfif?updated_after=<ISO>&limit=<int>`. The preferred wire format is PFIF 1.5 XML (client sends `Accept: application/xml`); JSON array format is also accepted for legacy sources (Content-Type negotiated). The ETL never scrapes HTML or calls proprietary JSON endpoints.
+Each Source exposes `GET /pfif?updated_after=<ISO>&limit=<int>`. The ETL accepts both PFIF 1.5 XML (`Content-Type: application/xml`) and flat JSON arrays (`Content-Type: application/json`) — sources pick whichever is easier to implement. The ETL never scrapes HTML or calls proprietary JSON endpoints.
 
 **Source Record**:
 A single raw PFIF `<person>` element as received from a Source. Stored in `source_records` with its raw XML; the Source's `person_record_id` becomes `source_records.external_id`.

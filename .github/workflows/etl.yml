@@ -50,7 +50,7 @@ jobs:
       matrix:
         source: ${{ fromJson(needs.matrix.outputs.sources) }}
     runs-on: ubuntu-latest
-    if: ${{ github.event.inputs.source == '' || github.event.inputs.source == matrix.source }}
+    if: ${{ !inputs.source || inputs.source == matrix.source }}
     # cancel-in-progress: false so runs queue rather than abort on */10 cron ticks
     concurrency:
       group: etl-${{ matrix.source }}

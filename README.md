@@ -4,7 +4,7 @@ Consolida reportes de personas desaparecidas tras el terremoto de Venezuela 2026
 
 ## Cómo funciona
 
-1. **Fuentes**: Cada plataforma expone un endpoint `GET /pfif`. El formato preferido es PFIF 1.5 XML (negociado vía `Accept: application/xml`); el ETL también acepta JSON para fuentes legacy (negociado por Content-Type).
+1. **Fuentes**: Cada plataforma expone un endpoint `GET /pfif`. El ETL acepta **XML** (PFIF 1.5) y **JSON** (array de objetos planos) — la fuente elige cuál le queda más fácil. El ETL negocia vía `Accept` y detecta el formato por `Content-Type` de la respuesta.
 2. **ETL**: Un pipeline en Python corre cada 10 minutos vía GitHub Actions. Por cada fuente:
    - Recorre páginas con `updated_after`, `offset` y `limit`
    - Normaliza nombres (Double Metaphone) y ubicaciones (sinónimos curados en [`locations.yml`](./locations.yml))
@@ -33,9 +33,11 @@ GET /pfif?updated_after=<ISO 8601>&offset=<int>&limit=<int>
 
 ### Respuesta
 
-Formato preferido: PFIF 1.5 XML. El ETL negocia vía cabecera `Accept: application/xml`; si la fuente responde con `Content-Type: application/json`, el ETL tolera un array JSON plano como formato legacy.
+El endpoint debe devolver **XML** o **JSON**. El ETL detecta el formato automáticamente por el `Content-Type` de la respuesta.
 
-Ejemplo con un solo registro en PFIF 1.5 XML:
+#### Opción A — PFIF 1.5 XML
+
+`Content-Type: application/xml`
 
 ```xml
 <?xml version="1.0" encoding="UTF-8"?>
@@ -56,7 +58,33 @@ Ejemplo con un solo registro en PFIF 1.5 XML:
 </pfif:pfif>
 ```
 
-Los campos adicionales (`contacto`, `localizado_por`, etc.) pueden incluirse como elementos `<pfif:contacto>`, etc., o dentro de `<pfif:other>`.
+#### Opción B — JSON
+
+`Content-Type: application/json`
+
+Devuelves un array de objetos planos. Las llaves son las mismas que en XML, sin prefijo `pfif:`.
+
+```json
+[
+  {
+    "person_record_id": "midominio.com/a1b2c3",
+    "full_name": "María Fernández",
+    "given_name": "María",
+    "family_name": "Fernández",
+    "age": 30,
+    "last_known_location": "Catia La Mar",
+    "description": "Cabello negro, ojos marrones",
+    "photo_url": "https://tudominio.com/fotos/123.jpg",
+    "status": "missing",
+    "source_date": "2026-06-25T13:58:00Z",
+    "author_name": "Familiar"
+  }
+]
+```
+
+En ambos formatos, los campos `contacto`, `localizado_por`, `localizado_contacto`, `localizado_relacion` y `localizado_nota` son opcionales y se aceptan como campos extra.
+
+En XML, los campos extra pueden ir como `<pfif:contacto>`, `<pfif:localizado_por>`, etc., o dentro de `<pfif:other>` con formato `Clave: valor | Clave: valor`.
 
 ### Paginación
 

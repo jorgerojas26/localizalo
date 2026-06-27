@@ -1,6 +1,8 @@
 -- PostgREST safeupdate blocks DELETE inside RPC functions, even inside EXECUTE.
 -- Workaround: use TRUNCATE for temp table, and delegate the persons DELETE to a
 -- nested helper function that PostgREST can't statically analyze.
+-- All table references are fully schema-qualified (localize.) because PostgREST
+-- may override the function's search_path at runtime.
 
 -- Helper: PostgREST can't peer into nested function calls.
 CREATE OR REPLACE FUNCTION localize._reconcile_delete_person(_pid TEXT)
@@ -10,7 +12,7 @@ SECURITY DEFINER
 SET search_path = 'localize, public'
 AS $$
 BEGIN
-    DELETE FROM persons WHERE person_record_id = _pid;
+    DELETE FROM localize.persons WHERE person_record_id = _pid;
 END;
 $$;
 
@@ -40,8 +42,8 @@ BEGIN
                p2.status AS s2,
                p1.status_priority AS sp1,
                p2.status_priority AS sp2
-        FROM persons p1
-        JOIN persons p2 ON p1.person_record_id < p2.person_record_id
+        FROM localize.persons p1
+        JOIN localize.persons p2 ON p1.person_record_id < p2.person_record_id
             AND p1.location_normalized IS NOT DISTINCT FROM p2.location_normalized
             AND p1.full_name % p2.full_name
             AND similarity(p1.full_name, p2.full_name) > 0.5
@@ -50,15 +52,15 @@ BEGIN
         ORDER BY p1.person_record_id
         LIMIT max_pairs
     LOOP
-        UPDATE source_records
+        UPDATE localize.source_records
         SET person_record_id = rec.pid1
         WHERE person_record_id = rec.pid2;
 
-        UPDATE notes
+        UPDATE localize.notes
         SET person_record_id = rec.pid1
         WHERE person_record_id = rec.pid2;
 
-        UPDATE persons
+        UPDATE localize.persons
         SET status = CASE
                 WHEN localize.status_to_priority(rec.s2) > localize.status_to_priority(rec.s1)
                 THEN rec.s2 ELSE rec.s1
@@ -69,7 +71,7 @@ BEGIN
         merge_nid := substring(md5(rec.pid1 || '|merge|' || rec.pid2), 1, 16);
         merge_text := 'Registro duplicado fusionado. ID secundario: ' || rec.pid2 || '.';
 
-        INSERT INTO notes (person_record_id, note_text, note_record_id, created_at)
+        INSERT INTO localize.notes (person_record_id, note_text, note_record_id, created_at)
         VALUES (rec.pid1, merge_text, merge_nid, now())
         ON CONFLICT (note_record_id) DO NOTHING;
 

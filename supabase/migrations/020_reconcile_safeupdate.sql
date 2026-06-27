@@ -45,7 +45,7 @@ BEGIN
         FROM localize.persons p1
         JOIN localize.persons p2 ON p1.person_record_id < p2.person_record_id
             AND p1.location_normalized IS NOT DISTINCT FROM p2.location_normalized
-            AND similarity(p1.full_name, p2.full_name) > 0.5
+            AND public.similarity(p1.full_name, p2.full_name) > 0.5
             AND NOT EXISTS (SELECT 1 FROM touched_pids WHERE pid = p1.person_record_id)
             AND NOT EXISTS (SELECT 1 FROM touched_pids WHERE pid = p2.person_record_id)
         ORDER BY p1.person_record_id
@@ -112,15 +112,15 @@ BEGIN
         SELECT p.*
         FROM localize.persons p
         WHERE p.location_normalized = _location
-          AND similarity(p.full_name, _name) > 0.3
-        ORDER BY similarity(p.full_name, _name) DESC
+          AND public.similarity(p.full_name, _name) > 0.3
+        ORDER BY public.similarity(p.full_name, _name) DESC
         LIMIT _limit;
     ELSE
         RETURN QUERY
         SELECT p.*
         FROM localize.persons p
-        WHERE similarity(p.full_name, _name) > 0.3
-        ORDER BY similarity(p.full_name, _name) DESC
+        WHERE public.similarity(p.full_name, _name) > 0.3
+        ORDER BY public.similarity(p.full_name, _name) DESC
         LIMIT _limit;
     END IF;
 END;

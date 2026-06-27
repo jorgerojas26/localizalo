@@ -133,12 +133,14 @@ Eso es todo. No necesitas escribir código Python ni entender el ETL.
 
 ## Cómo consumir los datos
 
-Cada ciclo el ETL genera archivos PFIF 1.5 consolidados con todos los registros deduplicados y sus notas históricas, en **XML** y **JSON**. Las organizaciones humanitarias (Cruz Roja, Google Person Finder, etc.) pueden consumir cualquiera de los dos formatos.
+Cada ciclo el ETL genera los datos consolidados con todos los registros deduplicados y sus notas históricas en dos formatos:
 
 | Formato | URL |
 |---|---|
-| XML | `https://insoelfklgcmshjpuhrb.supabase.co/storage/v1/object/public/pfif/export.xml` |
+| PFIF 1.5 XML | `https://insoelfklgcmshjpuhrb.supabase.co/storage/v1/object/public/pfif/export.xml` |
 | JSON | `https://insoelfklgcmshjpuhrb.supabase.co/storage/v1/object/public/pfif/export.json` |
+
+Ambos contienen la misma data. Las organizaciones humanitarias (Cruz Roja, Google Person Finder) pueden consumir el XML; el JSON está disponible para quien prefiera integrarlo sin parsear XML.
 
 ## Semántica de notas históricas (merges)
 

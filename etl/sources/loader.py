@@ -192,6 +192,11 @@ def fetch(source_config: dict, updated_after: str):
                         raw_records = [_parse_pfif_person(p) for p in persons]
                     else:
                         raw_records = resp.json()
+                        # Map person_record_id -> external_id for consistency
+                        # with the XML parser (_parse_pfif_person does this).
+                        for r in raw_records:
+                            if "person_record_id" in r:
+                                r["external_id"] = r["person_record_id"]
                     data = [sanitize_record(r) for r in raw_records]
                     data = [r for r in data if r is not None]
                     log.info("Fetched offset %d: %d records", offset, len(data))

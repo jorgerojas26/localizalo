@@ -135,7 +135,11 @@ Eso es todo. No necesitas escribir código Python ni entender el ETL.
 
 Cada ciclo el ETL genera un archivo PFIF 1.5 consolidado con todos los registros deduplicados y sus notas históricas. Las organizaciones humanitarias (Cruz Roja, Google Person Finder, etc.) consumen este archivo para integrar los datos en sus plataformas.
 
-La URL de descarga se publicará en este README cuando el sistema esté en producción.
+**Descarga el PFIF consolidado:**
+
+```
+https://insoelfklgcmshjpuhrb.supabase.co/storage/v1/object/public/pfif/export.xml
+```
 
 ## Semántica de notas históricas (merges)
 

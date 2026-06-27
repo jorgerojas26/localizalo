@@ -1,5 +1,8 @@
 # Localizalo.org
 
+Monorepo with ETL (Python, `apps/etl/`) + web (Next.js, `apps/web/`).
+Shared infra (Supabase) at `supabase/`.
+
 ETL pipeline that consolidates missing persons reports from multiple sources after the 2026 Venezuela earthquake, deduplicates via phonetic matching, and exports to PFIF 1.5.
 
 ## Language

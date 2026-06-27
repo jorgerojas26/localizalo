@@ -1,0 +1,10 @@
+{
+  "name": "localizalo",
+  "private": true,
+  "scripts": {
+    "dev": "pnpm --filter web exec -- next dev",
+    "build:web": "pnpm --filter web exec -- next build",
+    "start": "pnpm --filter web exec -- next start",
+    "lint:web": "pnpm --filter web exec -- next lint"
+  }
+}

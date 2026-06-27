@@ -1,5 +1,17 @@
 # Localizalo.org
 
+Monorepo con ETL (Python) + web (Next.js).
+
+```
+localizalo.org/
+├── apps/
+│   ├── etl/          ← Python ETL pipeline
+│   └── web/          ← Next.js frontend
+├── supabase/         ← Shared infra (DB migrations, config)
+├── package.json      ← pnpm workspace root
+└── pnpm-workspace.yaml
+```
+
 Consolida reportes de personas desaparecidas tras el terremoto de Venezuela 2026 desde múltiples fuentes, deduplica usando emparejamiento fonético, y exporta a PFIF 1.5.
 
 ## Cómo funciona
@@ -7,7 +19,7 @@ Consolida reportes de personas desaparecidas tras el terremoto de Venezuela 2026
 1. **Fuentes**: Cada plataforma expone un endpoint `GET /pfif`. El ETL acepta **XML** (PFIF 1.5) y **JSON** (array de objetos planos) — la fuente elige cuál le queda más fácil. El ETL negocia vía `Accept` y detecta el formato por `Content-Type` de la respuesta.
 2. **ETL**: Un pipeline en Python corre cada 10 minutos vía GitHub Actions. Por cada fuente:
    - Recorre páginas con `updated_after`, `offset` y `limit`
-   - Normaliza nombres (Double Metaphone) y ubicaciones (sinónimos curados en [`locations.yml`](./locations.yml))
+   - Normaliza nombres (Double Metaphone) y ubicaciones (sinónimos curados en [`locations.yml`](./apps/etl/locations.yml))
    - Genera `person_record_id` determinístico = `sha256(phonetic_hash | location_normalized)[:16]`
    - Deduplica: mismo `person_record_id` → misma persona canónica; nombres fonéticamente similares + misma ubicación → merge como nota histórica
    - Colisiones de hash (falso positivo): desambigua con sufijo `-<discriminator>` y crea persona separada
@@ -108,7 +120,7 @@ El ETL itera `offset=0, 1000, 2000...` hasta recibir una respuesta con menos de 
 
 ## Registrarse como fuente
 
-Haz un PR a este repositorio agregando tu fuente en [`sources.yml`](./sources.yml):
+Haz un PR a este repositorio agregando tu fuente en [`sources.yml`](./apps/etl/sources.yml):
 
 ```yaml
 sources:

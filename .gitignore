@@ -7,3 +7,12 @@ __pycache__/
 desaparecidos*.json
 desaparecidos*.pfif
 .env*
+
+# Dependencies
+node_modules/
+.pnpm-store/
+/lock.yaml
+
+# Next.js
+.next/
+out/

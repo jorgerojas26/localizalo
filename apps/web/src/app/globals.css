@@ -1,26 +1,60 @@
 @import "tailwindcss";
 
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  --canvas: #ffffff;
+  --ink: #171717;
+  --body: #60646c;
+  --muted: #999999;
+  --hairline: #f0f0f3;
+  --hairline-strong: #dcdee0;
+  --surface-strong: #f0f0f3;
+  --surface-card: #ffffff;
+  --primary: #000000;
+  --on-primary: #ffffff;
+  --error: #eb8e90;
+  --success: #16a34a;
+  --text-link: #0d74ce;
 }
 
 @theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
-}
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+  --color-canvas: var(--canvas);
+  --color-ink: var(--ink);
+  --color-body: var(--body);
+  --color-muted: var(--muted);
+  --color-hairline: var(--hairline);
+  --color-hairline-strong: var(--hairline-strong);
+  --color-surface-strong: var(--surface-strong);
+  --color-surface-card: var(--surface-card);
+  --color-primary: var(--primary);
+  --color-on-primary: var(--on-primary);
+  --color-error: var(--error);
+  --color-success: var(--success);
+  --color-text-link: var(--text-link);
+  --font-sans: var(--font-inter);
+  --font-mono: var(--font-jetbrains-mono);
 }
 
 body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  background: var(--canvas);
+  color: var(--ink);
+  font-family: var(--font-inter), -apple-system, system-ui, sans-serif;
+}
+
+::placeholder {
+  color: var(--muted);
+}
+
+@keyframes animate-in {
+  from {
+    opacity: 0;
+    transform: scale(0.95) translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
+}
+
+.animate-in {
+  animation: animate-in 0.2s ease-out;
 }

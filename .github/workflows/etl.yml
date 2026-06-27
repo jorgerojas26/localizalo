@@ -23,11 +23,16 @@ jobs:
           cache: pip
       - run: pip install PyYAML
       - id: gen
+        env:
+          REQUESTED_SOURCE: ${{ inputs.source }}
         run: |
           SOURCES=$(python -c "
-          import yaml, json
+          import yaml, json, os
           with open('sources.yml') as f:
               sources = yaml.safe_load(f)['sources']
+          requested = os.environ.get('REQUESTED_SOURCE', '')
+          if requested:
+              sources = [s for s in sources if s['id'] == requested]
           print(json.dumps([s['id'] for s in sources]))
           ")
           echo "sources=$SOURCES" >> $GITHUB_OUTPUT
@@ -50,7 +55,6 @@ jobs:
       matrix:
         source: ${{ fromJson(needs.matrix.outputs.sources) }}
     runs-on: ubuntu-latest
-    if: ${{ !inputs.source || inputs.source == matrix.source }}
     # cancel-in-progress: false so runs queue rather than abort on */10 cron ticks
     concurrency:
       group: etl-${{ matrix.source }}

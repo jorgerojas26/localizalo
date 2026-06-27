@@ -303,23 +303,47 @@ def count_notes(client) -> int:
     return result.count
 
 
+def _upload_export(client, content: bytes, path: str, content_type: str, upsert: bool = False) -> None:
+    """Upload *content* to the ``pfif`` storage bucket at *path*.
+
+    Parameters
+    ----------
+    client : supabase.Client
+    content : bytes
+        Raw bytes to upload.
+    path : str
+        Object path within the bucket (e.g. ``"exports/export_xxx.json"``).
+    content_type : str
+        MIME type for the object (e.g. ``"application/json"``).
+    upsert : bool
+        Whether to overwrite an existing object at *path*.
+    """
+    opts = {"content-type": content_type}
+    if upsert:
+        opts["upsert"] = "true"
+    client.storage.from_("pfif").upload(path, content, opts)
+
+
 @_retry()
 def upload_pfif(client, xml_content: str, run_id: str) -> None:
     content = xml_content.encode()
-    bucket = client.storage.from_("pfif")
 
     # Versioned export — never overwritten (immutable per run)
-    bucket.upload(
-        f"exports/export_{run_id}.xml",
-        content,
-        {"content-type": "application/xml"},
-    )
+    _upload_export(client, content, f"exports/export_{run_id}.xml", "application/xml")
 
     # Latest symlink — always points to current
-    # NOTE: upsert must be a string "true" because storage3 FileOptions
-    #       TypedDict defines it as str (HTTP header x-upsert).
-    bucket.upload(
-        "export.xml",
-        content,
-        {"content-type": "application/xml", "upsert": "true"},
-    )
+    _upload_export(client, content, "export.xml", "application/xml", upsert=True)
+
+
+@_retry()
+def upload_export_json(client, json_content: str, run_id: str) -> None:
+    """Upload a JSON export to the ``pfif`` storage bucket.
+
+    Creates both a versioned path (``exports/export_{run_id}.json``) and
+    a latest path (``export.json``, upserted).
+    """
+    content = json_content.encode()
+
+    _upload_export(client, content, f"exports/export_{run_id}.json", "application/json")
+
+    _upload_export(client, content, "export.json", "application/json", upsert=True)

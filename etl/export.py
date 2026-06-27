@@ -16,6 +16,7 @@ except ImportError:
 
 from etl import db
 from etl.db import _SCHEMA
+from etl.export_json import export_json
 from etl.export_pfif import export_pfif
 
 log = logging.getLogger(__name__)
@@ -57,19 +58,32 @@ def main() -> None:
 
         reconcile(client)
 
-        pfif_xml = export_pfif(
-            db.get_all_persons_paged(client),
-            db.get_all_notes_paged(client),
-        )
+        person_pages = list(db.get_all_persons_paged(client))
+        note_pages = list(db.get_all_notes_paged(client))
 
         run_id = str(uuid.uuid4())
-        db.upload_pfif(client, pfif_xml, run_id)
+
+        # --- XML export ---
+        try:
+            pfif_xml = export_pfif(person_pages, note_pages)
+            db.upload_pfif(client, pfif_xml, run_id)
+            log.info("PFIF XML uploaded: run_id=%s, size=%d bytes", run_id, len(pfif_xml))
+        except Exception:
+            log.exception("PFIF XML export/upload failed, continuing")
+
+        # --- JSON export ---
+        try:
+            pfif_json = export_json(person_pages, note_pages)
+            db.upload_export_json(client, pfif_json, run_id)
+            log.info("PFIF JSON uploaded: run_id=%s, size=%d bytes", run_id, len(pfif_json))
+        except Exception:
+            log.exception("PFIF JSON export/upload failed, continuing")
 
         person_count = db.count_persons(client)
         note_count = db.count_notes(client)
         log.info(
-            "Consolidator PFIF uploaded: run_id=%s, persons=%d, notes=%d, size=%d bytes",
-            run_id, person_count, note_count, len(pfif_xml),
+            "Consolidator run complete: run_id=%s, persons=%d, notes=%d",
+            run_id, person_count, note_count,
         )
     except Exception:
         log.exception("Consolidator run failed")

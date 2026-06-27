@@ -183,14 +183,20 @@ def fetch(source_config: dict, updated_after: str):
                     )
                     resp.raise_for_status()
                     ctype = resp.headers.get("content-type", "").lower()
+                    raw_records = None
                     if "xml" in ctype:
-                        root = xml_from_string(resp.text)
-                        ns = f"{{{PFIF_NS}}}"
-                        persons = root.findall(f".//{ns}person")
-                        if not persons:
-                            persons = root.findall(".//person")
-                        raw_records = [_parse_pfif_person(p) for p in persons]
-                    else:
+                        try:
+                            root = xml_from_string(resp.text)
+                            ns = f"{{{PFIF_NS}}}"
+                            persons = root.findall(f".//{ns}person")
+                            if not persons:
+                                persons = root.findall(".//person")
+                            raw_records = [_parse_pfif_person(p) for p in persons]
+                        except Exception:
+                            log.debug("XML parse failed for Content-Type %s, trying JSON", ctype)
+                    if raw_records is None or not raw_records:
+                        # Either Content-Type was not XML, or XML parsing failed.
+                        # Fall back to JSON parsing.
                         raw_records = resp.json()
                         # Map person_record_id -> external_id for consistency
                         # with the XML parser (_parse_pfif_person does this).

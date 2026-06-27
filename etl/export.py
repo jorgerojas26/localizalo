@@ -15,6 +15,7 @@ except ImportError:
     sentry_sdk = None
 
 from etl import db
+from etl.db import _SCHEMA
 from etl.export_pfif import export_pfif
 
 log = logging.getLogger(__name__)
@@ -27,7 +28,7 @@ def reconcile(client) -> int:
     """
     total = 0
     while True:
-        result = client.rpc("localize.reconcile_duplicate_persons", {"_limit": 5000}).execute()
+        result = client.schema(_SCHEMA).rpc("reconcile_duplicate_persons", {"_limit": 5000}).execute()
         pairs = result.data or []
         if not pairs:
             break

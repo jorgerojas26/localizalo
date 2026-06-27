@@ -27,7 +27,7 @@ def reconcile(client) -> int:
     """
     total = 0
     while True:
-        result = client.rpc("reconcile_duplicate_persons", {"_limit": 5000}).execute()
+        result = client.rpc("localize.reconcile_duplicate_persons", {"_limit": 5000}).execute()
         pairs = result.data or []
         if not pairs:
             break

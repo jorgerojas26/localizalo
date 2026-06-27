@@ -140,7 +140,7 @@ def find_person_by_phonetic_match(
             return candidate
 
     # Trigram-based fuzzy match via server-side RPC
-    result = client.rpc("trigram_match_persons", {
+    result = client.rpc("localize.trigram_match_persons", {
         "_name": name,
         "_location": location,
         "_limit": 50,
@@ -160,7 +160,7 @@ def create_person(client, person: dict) -> None:
 
 @_retry()
 def atomic_upsert_person(client, person: dict, source_record: dict) -> str:
-    result = client.rpc("atomic_upsert_person", {
+    result = client.rpc("localize.atomic_upsert_person", {
         "_person_record_id": person["person_record_id"],
         "_full_name": person["full_name"],
         "_given_name": person.get("given_name"),
@@ -201,7 +201,7 @@ def add_note(client, note: dict) -> None:
 
 @_retry()
 def atomic_merge_note(client, note: dict, source_record: dict) -> None:
-    client.rpc("atomic_merge_note", {
+    client.rpc("localize.atomic_merge_note", {
         "_person_record_id": note["person_record_id"],
         "_note_record_id": note["note_record_id"],
         "_note_text": note["note_text"],

@@ -85,4 +85,4 @@ def export_json(person_pages, note_pages) -> str:
             person["notes"] = notes_by_person.get(pid, [])
             persons.append(person)
 
-    return json.dumps(persons, ensure_ascii=False, indent=2)
+    return json.dumps(persons, ensure_ascii=False, separators=(",", ":"))

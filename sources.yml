@@ -5,3 +5,9 @@ sources:
     namespace: desaparecidosterremotovenezuela.com
     base_url: https://desaparecidos-terremoto-api.theempire.tech
     rate_limit_ms: 100
+
+  - id: ayuda-venezuela-backend
+    name: Ayuda Venezuela
+    namespace: ayuda-venezuela-backend-291864207498.us-central1.run.app
+    base_url: https://ayuda-venezuela-backend-291864207498.us-central1.run.app
+    rate_limit_ms: 100
